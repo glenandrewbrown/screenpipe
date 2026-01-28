@@ -120,9 +120,31 @@ public class FeedbackViewModel: ObservableObject {
     }
 
     private func processSession() async {
-        // Placeholder - will be implemented in Phase 3
-        await MainActor.run {
-            self.state = .error("Processing not yet implemented")
+        guard let session = currentSession else {
+            await MainActor.run { state = .error("No session to process") }
+            return
+        }
+
+        do {
+            let builder = ReportBuilder(session: session)
+            let zipURL = try builder.build()
+
+            // Move to Desktop for easy access
+            let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+            let finalPath = desktop.appendingPathComponent("Feedback_\(session.id.uuidString.prefix(8)).zip")
+
+            if FileManager.default.fileExists(atPath: finalPath.path) {
+                try FileManager.default.removeItem(at: finalPath)
+            }
+            try FileManager.default.moveItem(at: zipURL, to: finalPath)
+
+            await MainActor.run {
+                state = .complete(finalPath)
+            }
+        } catch {
+            await MainActor.run {
+                state = .error("Failed to create report: \(error.localizedDescription)")
+            }
         }
     }
 }
