@@ -17,6 +17,7 @@ public class FeedbackViewModel: ObservableObject {
     private var timer: Timer?
     private var healthCheckTask: Task<Void, Never>?
     private var currentSession: FeedbackSession?
+    private let audioRecorder = AudioRecorder()
 
     public init() {
         startHealthCheck()
@@ -35,7 +36,13 @@ public class FeedbackViewModel: ObservableObject {
     }
 
     public func startRecording() {
-        let session = FeedbackSession()
+        var session = FeedbackSession()
+
+        // Start audio recording
+        if let audioPath = audioRecorder.startRecording() {
+            session.audioPath = audioPath
+        }
+
         currentSession = session
         state = .recording
         recordingDuration = 0
@@ -57,6 +64,9 @@ public class FeedbackViewModel: ObservableObject {
     }
 
     public func stopRecording() {
+        // Stop audio recording
+        _ = audioRecorder.stopRecording()
+
         timer?.invalidate()
         timer = nil
         state = .processing
