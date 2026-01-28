@@ -120,12 +120,36 @@ public class FeedbackViewModel: ObservableObject {
     }
 
     private func processSession() async {
-        guard let session = currentSession else {
+        guard var session = currentSession else {
             await MainActor.run { state = .error("No session to process") }
             return
         }
 
         do {
+            // Step 1: Transcribe audio using Whisper (via screenpipe)
+            if let audioPath = session.audioPath {
+                let transcription = try await ScreenpipeClient.shared.transcribeAudio(filePath: audioPath.path)
+                session.transcription = transcription
+                await MainActor.run {
+                    self.currentSession?.transcription = transcription
+                }
+            }
+
+            // Step 2: Generate summary with Ollama (if available)
+            if await OllamaClient.shared.checkHealth(), let transcription = session.transcription {
+                // Summarization is optional - don't fail if it doesn't work
+                let summary = try? await OllamaClient.shared.summarize(
+                    transcription: transcription,
+                    context: session.startContext
+                )
+                // Summary could be stored in session for report enhancement
+                // Currently logged for debugging purposes
+                if let summary = summary {
+                    print("[FeedbackTool] AI Summary generated: \(summary.prefix(100))...")
+                }
+            }
+
+            // Step 3: Build the feedback package
             let builder = ReportBuilder(session: session)
             let zipURL = try builder.build()
 
@@ -143,7 +167,7 @@ public class FeedbackViewModel: ObservableObject {
             }
         } catch {
             await MainActor.run {
-                state = .error("Failed to create report: \(error.localizedDescription)")
+                state = .error("Processing failed: \(error.localizedDescription)")
             }
         }
     }
