@@ -121,7 +121,10 @@ public class FeedbackViewModel: ObservableObject {
 
     private func processSession() async {
         guard var session = currentSession else {
-            await MainActor.run { state = .error("No session to process") }
+            await MainActor.run {
+                state = .error("No session to process")
+                NotificationManager.shared.showError(message: "No session to process")
+            }
             return
         }
 
@@ -164,10 +167,12 @@ public class FeedbackViewModel: ObservableObject {
 
             await MainActor.run {
                 state = .complete(finalPath)
+                NotificationManager.shared.showSuccess(path: finalPath)
             }
         } catch {
             await MainActor.run {
                 state = .error("Processing failed: \(error.localizedDescription)")
+                NotificationManager.shared.showError(message: error.localizedDescription)
             }
         }
     }
