@@ -7,7 +7,7 @@
 // Project Identity
 // ==========================================
 PRODUCT_NAME = VoiceFeedback
-PRODUCT_DISPLAY_NAME = Voice Feedback
+PRODUCT_DISPLAY_NAME = VoiceFeedback
 PRODUCT_BUNDLE_IDENTIFIER = com.screenpipe.voicefeedback
 MARKETING_VERSION = 1.0
 CURRENT_PROJECT_VERSION = 1
@@ -21,7 +21,6 @@ MACOSX_DEPLOYMENT_TARGET = 14.0
 // Info PLIST
 // ==========================================
 GENERATE_INFOPLIST_FILE = YES
-// Menu bar only app - no dock icon
 INFOPLIST_KEY_LSUIElement = YES
 
 // ==========================================

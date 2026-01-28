@@ -1,4 +1,5 @@
 import SwiftUI
+import VoiceFeedbackFeature
 
 @main
 struct VoiceFeedbackApp: App {

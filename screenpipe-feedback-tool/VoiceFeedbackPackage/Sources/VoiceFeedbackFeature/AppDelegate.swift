@@ -1,12 +1,12 @@
 import Cocoa
 import SwiftUI
-import VoiceFeedbackFeature
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor
+public class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    public func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBar()
     }
 
