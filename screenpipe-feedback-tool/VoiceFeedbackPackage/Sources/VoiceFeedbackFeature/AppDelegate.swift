@@ -8,6 +8,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBar()
+        setupHotkey()
+    }
+
+    public func applicationWillTerminate(_ notification: Notification) {
+        HotkeyManager.shared.unregister()
     }
 
     private func setupMenuBar() {
@@ -22,6 +27,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentSize = NSSize(width: 280, height: 200)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: FeedbackView())
+    }
+
+    private func setupHotkey() {
+        HotkeyManager.shared.register { [weak self] in
+            DispatchQueue.main.async {
+                self?.togglePopover()
+            }
+        }
     }
 
     @objc private func togglePopover() {
