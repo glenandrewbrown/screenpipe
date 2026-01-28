@@ -12,10 +12,26 @@ public enum FeedbackState {
 public class FeedbackViewModel: ObservableObject {
     @Published public var state: FeedbackState = .ready
     @Published public var recordingDuration: TimeInterval = 0
+    @Published public var isScreenpipeHealthy = false
 
     private var timer: Timer?
+    private var healthCheckTask: Task<Void, Never>?
 
-    public init() {}
+    public init() {
+        startHealthCheck()
+    }
+
+    private func startHealthCheck() {
+        healthCheckTask = Task {
+            while !Task.isCancelled {
+                let healthy = await ScreenpipeClient.shared.checkHealth()
+                await MainActor.run {
+                    self.isScreenpipeHealthy = healthy
+                }
+                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
+            }
+        }
+    }
 
     public func startRecording() {
         state = .recording
