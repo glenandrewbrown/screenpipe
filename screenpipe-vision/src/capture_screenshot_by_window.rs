@@ -10,6 +10,256 @@ use xcap::{Window, XCapError};
 use crate::browser_utils::create_url_detector;
 use crate::monitor::SafeMonitor;
 
+/// On macOS, xcap uses AppKit APIs that MUST be called from the main thread.
+/// This module provides safe wrappers that dispatch xcap Window calls to the main thread.
+#[cfg(target_os = "macos")]
+mod macos_window_capture {
+    use super::*;
+    use dispatch::Queue;
+    use std::sync::OnceLock;
+
+    extern "C" {
+        /// Returns non-zero if the current thread is the main thread.
+        fn pthread_main_np() -> libc::c_int;
+    }
+
+    /// Check if the current thread is the main thread
+    fn is_main_thread() -> bool {
+        unsafe { pthread_main_np() != 0 }
+    }
+
+    fn main_queue() -> &'static Queue {
+        static MAIN_QUEUE: OnceLock<Queue> = OnceLock::new();
+        MAIN_QUEUE.get_or_init(Queue::main)
+    }
+
+    /// Execute a closure on the main thread synchronously.
+    fn run_on_main_thread<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R + Send,
+        R: Send,
+    {
+        if is_main_thread() {
+            return f();
+        }
+        main_queue().exec_sync(f)
+    }
+
+    /// Captured window data extracted on the main thread
+    pub struct WindowData {
+        pub app_name: String,
+        pub title: String,
+        pub is_focused: bool,
+        pub buffer: image::RgbaImage,
+        pub process_id: i32,
+        pub window_x: i32,
+        pub window_y: i32,
+        pub window_width: u32,
+        pub window_height: u32,
+    }
+
+    /// Capture all windows on the main thread and return extracted data
+    pub fn capture_windows_on_main_thread() -> Result<Vec<WindowData>, XCapError> {
+        run_on_main_thread(|| {
+            let windows = Window::all()?;
+            let mut results = Vec::new();
+
+            for window in windows {
+                // Extract all necessary data from the window while on main thread
+                let app_name = match window.app_name() {
+                    Ok(name) => name.to_string(),
+                    Err(e) => {
+                        debug!("Failed to get app_name for window: {}", e);
+                        continue;
+                    }
+                };
+
+                let title = match window.title() {
+                    Ok(title) => title.to_string(),
+                    Err(e) => {
+                        debug!("Failed to get title for window {}: {}", app_name, e);
+                        continue;
+                    }
+                };
+
+                match window.is_minimized() {
+                    Ok(is_minimized) => {
+                        if is_minimized {
+                            debug!("Window {} ({}) is_minimized", app_name, title);
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Failed to get is_minimized for window {}: {}", app_name, e);
+                    }
+                };
+
+                let is_focused = match window.is_focused() {
+                    Ok(focused) => focused,
+                    Err(e) => {
+                        debug!(
+                            "Failed to get focus state for window {} ({}): {}",
+                            app_name, title, e
+                        );
+                        continue;
+                    }
+                };
+
+                let process_id = match window.pid() {
+                    Ok(pid) => pid as i32,
+                    Err(e) => {
+                        debug!(
+                            "Failed to get process ID for window {} ({}): {}",
+                            app_name, title, e
+                        );
+                        -1
+                    }
+                };
+
+                let (window_x, window_y, window_width, window_height) = (
+                    window.x().unwrap_or(0),
+                    window.y().unwrap_or(0),
+                    window.width().unwrap_or(0),
+                    window.height().unwrap_or(0),
+                );
+
+                match window.capture_image() {
+                    Ok(buffer) => {
+                        results.push(WindowData {
+                            app_name,
+                            title,
+                            is_focused,
+                            buffer,
+                            process_id,
+                            window_x,
+                            window_y,
+                            window_width,
+                            window_height,
+                        });
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Failed to capture image for window {} ({}): {}",
+                            app_name, title, e
+                        );
+                    }
+                }
+            }
+
+            Ok(results)
+        })
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod macos_window_capture {
+    use super::*;
+
+    /// Captured window data
+    pub struct WindowData {
+        pub app_name: String,
+        pub title: String,
+        pub is_focused: bool,
+        pub buffer: image::RgbaImage,
+        pub process_id: i32,
+        pub window_x: i32,
+        pub window_y: i32,
+        pub window_width: u32,
+        pub window_height: u32,
+    }
+
+    /// On non-macOS, capture windows directly (no main thread requirement)
+    pub fn capture_windows_on_main_thread() -> Result<Vec<WindowData>, XCapError> {
+        let windows = Window::all()?;
+        let mut results = Vec::new();
+
+        for window in windows {
+            let app_name = match window.app_name() {
+                Ok(name) => name.to_string(),
+                Err(e) => {
+                    debug!("Failed to get app_name for window: {}", e);
+                    continue;
+                }
+            };
+
+            let title = match window.title() {
+                Ok(title) => title.to_string(),
+                Err(e) => {
+                    debug!("Failed to get title for window {}: {}", app_name, e);
+                    continue;
+                }
+            };
+
+            match window.is_minimized() {
+                Ok(is_minimized) => {
+                    if is_minimized {
+                        debug!("Window {} ({}) is_minimized", app_name, title);
+                        continue;
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to get is_minimized for window {}: {}", app_name, e);
+                }
+            };
+
+            let is_focused = match window.is_focused() {
+                Ok(focused) => focused,
+                Err(e) => {
+                    debug!(
+                        "Failed to get focus state for window {} ({}): {}",
+                        app_name, title, e
+                    );
+                    continue;
+                }
+            };
+
+            let process_id = match window.pid() {
+                Ok(pid) => pid as i32,
+                Err(e) => {
+                    debug!(
+                        "Failed to get process ID for window {} ({}): {}",
+                        app_name, title, e
+                    );
+                    -1
+                }
+            };
+
+            let (window_x, window_y, window_width, window_height) = (
+                window.x().unwrap_or(0),
+                window.y().unwrap_or(0),
+                window.width().unwrap_or(0),
+                window.height().unwrap_or(0),
+            );
+
+            match window.capture_image() {
+                Ok(buffer) => {
+                    results.push(WindowData {
+                        app_name,
+                        title,
+                        is_focused,
+                        buffer,
+                        process_id,
+                        window_x,
+                        window_y,
+                        window_width,
+                        window_height,
+                    });
+                }
+                Err(e) => {
+                    debug!(
+                        "Failed to capture image for window {} ({}): {}",
+                        app_name, title, e
+                    );
+                }
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+use macos_window_capture::capture_windows_on_main_thread;
+
 const BROWSER_NAMES: [&str; 9] = [
     "chrome", "firefox", "safari", "edge", "brave", "arc", "chromium", "vivaldi", "opera",
 ];
@@ -212,117 +462,25 @@ pub async fn capture_all_visible_windows(
 ) -> Result<Vec<CapturedWindow>, Box<dyn Error>> {
     let mut all_captured_images = Vec::new();
 
-    // Get windows and immediately extract the data we need
-    let windows_data = Window::all()?
-        .into_iter()
-        .filter_map(|window| {
-            // Extract all necessary data from the window while in the main thread
-            let app_name = match window.app_name() {
-                Ok(name) => name.to_string(),
-                Err(e) => {
-                    // Log warning and skip this window
-                    // mostly noise
-                    debug!("Failed to get app_name for window: {}", e);
-                    return None;
-                }
-            };
-
-            let title = match window.title() {
-                Ok(title) => title.to_string(),
-                Err(e) => {
-                    // Expected for some system/overlay windows
-                    debug!("Failed to get title for window {}: {}", app_name, e);
-                    return None;
-                }
-            };
-
-            match window.is_minimized() {
-                Ok(is_minimized) => {
-                    if is_minimized {
-                        debug!("Window {} ({}) is_minimized", app_name, title);
-                        return None;
-                    }
-                }
-                Err(e) => {
-                    // Expected for some system/overlay windows - not a real error
-                    debug!("Failed to get is_minimized for window {}: {}", app_name, e);
-                }
-            };
-
-            let is_focused = match window.is_focused() {
-                Ok(focused) => focused,
-                Err(e) => {
-                    // Expected for overlay/system windows
-                    debug!(
-                        "Failed to get focus state for window {} ({}): {}",
-                        app_name, title, e
-                    );
-                    return None;
-                }
-            };
-
-            let process_id = match window.pid() {
-                Ok(pid) => pid as i32,
-                Err(e) => {
-                    // Expected for some protected/system processes
-                    debug!(
-                        "Failed to get process ID for window {} ({}): {}",
-                        app_name, title, e
-                    );
-                    -1
-                }
-            };
-
-            // Get window position and size for coordinate transformation
-            let (window_x, window_y, window_width, window_height) = (
-                window.x().unwrap_or(0),
-                window.y().unwrap_or(0),
-                window.width().unwrap_or(0),
-                window.height().unwrap_or(0),
-            );
-
-            // Capture image immediately while we have access to the window
-            match window.capture_image() {
-                Ok(buffer) => Some((
-                    app_name,
-                    title,
-                    is_focused,
-                    buffer,
-                    process_id,
-                    window_x,
-                    window_y,
-                    window_width,
-                    window_height,
-                )),
-                Err(e) => {
-                    // Expected for overlay windows, protected content, or transparent windows
-                    debug!(
-                        "Failed to capture image for window {} ({}): {}",
-                        app_name, title, e
-                    );
-                    None
-                }
-            }
-        })
-        .collect::<Vec<_>>();
+    // Get windows using main-thread-safe capture (critical for macOS)
+    let windows_data = capture_windows_on_main_thread()?;
 
     if windows_data.is_empty() {
         return Err(Box::new(CaptureError::NoWindows));
     }
 
     // Process the captured data
-    for (
-        app_name,
-        window_name,
-        is_focused,
-        buffer,
-        process_id,
-        window_x,
-        window_y,
-        window_width,
-        window_height,
-    ) in windows_data
-    {
+    for window_data in windows_data {
+        let app_name = window_data.app_name;
+        let window_name = window_data.title;
+        let is_focused = window_data.is_focused;
+        let buffer = window_data.buffer;
+        let process_id = window_data.process_id;
+        let window_x = window_data.window_x;
+        let window_y = window_data.window_y;
+        let window_width = window_data.window_width;
+        let window_height = window_data.window_height;
+
         // Convert to DynamicImage
         let image = DynamicImage::ImageRgba8(
             image::ImageBuffer::from_raw(buffer.width(), buffer.height(), buffer.into_raw())
