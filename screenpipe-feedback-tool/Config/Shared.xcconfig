@@ -28,3 +28,8 @@ INFOPLIST_KEY_LSUIElement = YES
 // ==========================================
 // AI agents can modify Config/VoiceFeedback.entitlements to add capabilities
 CODE_SIGN_ENTITLEMENTS = Config/VoiceFeedback.entitlements
+
+// ==========================================
+// Privacy Usage Descriptions
+// ==========================================
+INFOPLIST_KEY_NSMicrophoneUsageDescription = Voice Feedback needs microphone access to record your feedback.
