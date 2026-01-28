@@ -2,6 +2,8 @@
 pub mod apple;
 pub mod core;
 pub mod custom_ocr;
+#[cfg(target_os = "macos")]
+pub mod macos_capture;
 #[cfg(target_os = "windows")]
 pub mod microsoft;
 pub mod monitor;
