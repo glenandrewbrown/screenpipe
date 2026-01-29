@@ -96,6 +96,18 @@ public class ReportBuilder {
         try task.run()
         task.waitUntilExit()
 
+        // Validate ZIP creation succeeded
+        guard task.terminationStatus == 0 else {
+            throw NSError(
+                domain: "ReportBuilder",
+                code: Int(task.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: "ZIP creation failed with exit code \(task.terminationStatus)"]
+            )
+        }
+
+        // Clean up temporary directory
+        try? FileManager.default.removeItem(at: outputDir)
+
         return zipPath
     }
 }

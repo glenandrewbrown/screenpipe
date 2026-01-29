@@ -29,7 +29,10 @@ public final class ScreenpipeClient: Sendable {
         }
         components.queryItems = queryItems
 
-        let (data, _) = try await URLSession.shared.data(from: components.url!)
+        guard let url = components.url else {
+            throw NSError(domain: "ScreenpipeClient", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
+        }
+        let (data, _) = try await URLSession.shared.data(from: url)
         return try JSONDecoder().decode(SearchResponse.self, from: data)
     }
 

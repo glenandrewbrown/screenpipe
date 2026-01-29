@@ -15,7 +15,7 @@ public struct FeedbackSession {
     }
 }
 
-public struct CapturedContext {
+public struct CapturedContext: Sendable {
     public let timestamp: Date
     public let ocrResults: [OCRCapture]
     public let audioResults: [AudioCapture]
@@ -31,7 +31,7 @@ public struct CapturedContext {
     }
 }
 
-public struct OCRCapture {
+public struct OCRCapture: Sendable {
     public let frameId: Int
     public let text: String
     public let appName: String
@@ -47,7 +47,7 @@ public struct OCRCapture {
     }
 }
 
-public struct AudioCapture {
+public struct AudioCapture: Sendable {
     public let transcription: String
     public let deviceName: String
     public let filePath: String

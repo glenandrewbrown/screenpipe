@@ -23,6 +23,13 @@ public class FeedbackViewModel: ObservableObject {
         startHealthCheck()
     }
 
+    public func cleanup() {
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
+        timer?.invalidate()
+        timer = nil
+    }
+
     private func startHealthCheck() {
         healthCheckTask = Task {
             while !Task.isCancelled {
@@ -36,14 +43,12 @@ public class FeedbackViewModel: ObservableObject {
     }
 
     public func startRecording() {
+        // Create session with audio path atomically
+        let audioPath = audioRecorder.startRecording()
         var session = FeedbackSession()
-
-        // Start audio recording
-        if let audioPath = audioRecorder.startRecording() {
-            session.audioPath = audioPath
-        }
-
+        session.audioPath = audioPath
         currentSession = session
+
         state = .recording
         recordingDuration = 0
 
@@ -54,10 +59,12 @@ public class FeedbackViewModel: ObservableObject {
             }
         }
 
-        // Capture start context
+        // Capture start context - store session ID to verify consistency
+        let sessionId = session.id
         Task {
             let context = await captureContext()
-            await MainActor.run {
+            await MainActor.run { [weak self] in
+                guard let self, self.currentSession?.id == sessionId else { return }
                 self.currentSession?.startContext = context
             }
         }
@@ -71,13 +78,26 @@ public class FeedbackViewModel: ObservableObject {
         timer = nil
         state = .processing
 
+        // Capture session snapshot for processing
+        guard var sessionSnapshot = currentSession else {
+            state = .error("No session to process")
+            NotificationManager.shared.showError(message: "No session to process")
+            return
+        }
+
         Task {
             let endContext = await captureContext()
-            await MainActor.run {
+            sessionSnapshot.endContext = endContext
+            sessionSnapshot.endTime = Date()
+
+            // Update the main session with end context
+            await MainActor.run { [weak self] in
+                guard let self, self.currentSession?.id == sessionSnapshot.id else { return }
                 self.currentSession?.endContext = endContext
-                self.currentSession?.endTime = Date()
+                self.currentSession?.endTime = sessionSnapshot.endTime
             }
-            await processSession()
+
+            await processSession(session: sessionSnapshot)
         }
     }
 
@@ -119,31 +139,26 @@ public class FeedbackViewModel: ObservableObject {
         }
     }
 
-    private func processSession() async {
-        guard var session = currentSession else {
-            await MainActor.run {
-                state = .error("No session to process")
-                NotificationManager.shared.showError(message: "No session to process")
-            }
-            return
-        }
+    private func processSession(session: FeedbackSession) async {
+        var processingSession = session
 
         do {
             // Step 1: Transcribe audio using Whisper (via screenpipe)
-            if let audioPath = session.audioPath {
+            if let audioPath = processingSession.audioPath {
                 let transcription = try await ScreenpipeClient.shared.transcribeAudio(filePath: audioPath.path)
-                session.transcription = transcription
-                await MainActor.run {
+                processingSession.transcription = transcription
+                await MainActor.run { [weak self] in
+                    guard let self, self.currentSession?.id == processingSession.id else { return }
                     self.currentSession?.transcription = transcription
                 }
             }
 
             // Step 2: Generate summary with Ollama (if available)
-            if await OllamaClient.shared.checkHealth(), let transcription = session.transcription {
+            if await OllamaClient.shared.checkHealth(), let transcription = processingSession.transcription {
                 // Summarization is optional - don't fail if it doesn't work
                 let summary = try? await OllamaClient.shared.summarize(
                     transcription: transcription,
-                    context: session.startContext
+                    context: processingSession.startContext
                 )
                 // Summary could be stored in session for report enhancement
                 // Currently logged for debugging purposes
@@ -153,12 +168,12 @@ public class FeedbackViewModel: ObservableObject {
             }
 
             // Step 3: Build the feedback package
-            let builder = ReportBuilder(session: session)
+            let builder = ReportBuilder(session: processingSession)
             let zipURL = try builder.build()
 
             // Move to Desktop for easy access
             let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
-            let finalPath = desktop.appendingPathComponent("Feedback_\(session.id.uuidString.prefix(8)).zip")
+            let finalPath = desktop.appendingPathComponent("Feedback_\(processingSession.id.uuidString.prefix(8)).zip")
 
             if FileManager.default.fileExists(atPath: finalPath.path) {
                 try FileManager.default.removeItem(at: finalPath)
