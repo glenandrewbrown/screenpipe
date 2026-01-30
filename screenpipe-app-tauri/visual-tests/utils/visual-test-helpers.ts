@@ -47,22 +47,25 @@ type VisualFixtures = {
  */
 export const test = base.extend<VisualFixtures>({
   visualPage: async ({ page }, use) => {
-    // Disable animations for consistent screenshots
-    await page.addStyleTag({
-      content: `
+    // Disable animations via init script (persists across navigations)
+    await page.addInitScript(() => {
+      const style = document.createElement("style");
+      style.textContent = `
         *, *::before, *::after {
           animation-duration: 0s !important;
           animation-delay: 0s !important;
           transition-duration: 0s !important;
           transition-delay: 0s !important;
         }
-      `,
+      `;
+      if (document.head) {
+        document.head.appendChild(style);
+      } else {
+        document.addEventListener("DOMContentLoaded", () => {
+          document.head.appendChild(style);
+        });
+      }
     });
-
-    // Mock backend APIs so pages render without a running server
-    await mockHealthEndpoint(page, true);
-    await mockSearchEndpoint(page, []);
-    await mockFramesEndpoint(page, []);
 
     // Mock Tauri APIs that throw in browser context
     await page.addInitScript(() => {
@@ -70,6 +73,42 @@ export const test = base.extend<VisualFixtures>({
       (window as any).__TAURI_INTERNALS__ = {
         invoke: () => Promise.resolve(null),
         transformCallback: () => 0,
+      };
+    });
+
+    // Mock ALL backend API endpoints to prevent hanging network requests
+    await mockHealthEndpoint(page, true);
+    await mockSearchEndpoint(page, []);
+    await mockFramesEndpoint(page, []);
+
+    // Catch any other API calls to localhost:3030 (screenpipe backend)
+    await page.route("**/localhost:3030/**", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "ok" }),
+      });
+    });
+
+    // Mock WebSocket connections to prevent hanging
+    await page.addInitScript(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).WebSocket = class MockWebSocket {
+        onopen: (() => void) | null = null;
+        onmessage: (() => void) | null = null;
+        onclose: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        readyState = 1;
+        send() {}
+        close() {
+          this.readyState = 3;
+          if (this.onclose) this.onclose();
+        }
+        constructor() {
+          setTimeout(() => {
+            if (this.onopen) this.onopen();
+          }, 50);
+        }
       };
     });
 
@@ -90,8 +129,8 @@ export async function expectPageScreenshot(
   options?: VisualCompareOptions
 ) {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(300); // settle rendering
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(500); // settle rendering
 
   await expect(page).toHaveScreenshot(`${name}.png`, {
     maxDiffPixelRatio: opts.maxDiffPixelRatio,
@@ -288,8 +327,9 @@ export async function captureTabOrder(
  * Navigate to a page and wait for it to be fully rendered.
  */
 export async function navigateAndWait(page: Page, path: string) {
-  await page.goto(path, { waitUntil: "networkidle" });
-  await page.waitForTimeout(500);
+  await page.goto(path, { waitUntil: "domcontentloaded" });
+  // Wait for React hydration and initial render
+  await page.waitForTimeout(1000);
 }
 
 /**
