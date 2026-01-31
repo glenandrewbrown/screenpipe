@@ -83,24 +83,24 @@ export function AIPanel({
 
 	useEffect(() => {
 		const detectOS = () => {
-			// Try using modern API first
 			if ("userAgentData" in navigator) {
 				// @ts-ignore - userAgentData is not yet in all TypeScript definitions
 				return navigator.userAgentData.platform;
 			}
-			// Fallback to user agent string parsing
 			const userAgent = window.navigator.userAgent.toLowerCase();
 			if (userAgent.includes("mac")) return "macos";
 			if (userAgent.includes("win")) return "windows";
 			if (userAgent.includes("linux")) return "linux";
 			return "unknown";
 		};
-
-		const activePreset = settings.aiPresets.find((p) => p.defaultPreset);
-		setActivePreset(activePreset || undefined);
-
 		setOsType(detectOS());
 	}, []);
+
+	// Keep activePreset in sync with settings changes
+	useEffect(() => {
+		const defaultPreset = settings.aiPresets.find((p) => p.defaultPreset);
+		setActivePreset(defaultPreset || undefined);
+	}, [settings.aiPresets]);
 
 	const handlePanelMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
 		e.preventDefault();
@@ -224,10 +224,7 @@ export function AIPanel({
 		e.preventDefault();
 		if (!selectionRange || !aiInput.trim()) return;
 
-		// Check login for screenpipe-cloud
-		if (activePreset?.provider === "screenpipe-cloud" && !checkLogin(settings.user)) {
-			return;
-		}
+		// Note: Login check removed - all features work locally
 
 		// Track AI query
 		posthog.capture("timeline_ai_query", {

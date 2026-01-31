@@ -1,6 +1,7 @@
 import { isAfter } from "date-fns";
+import { getRawSqlUrl } from "../utils/api-url";
 
-export async function getStartDate() {
+export async function getStartDate(port?: number) {
 	try {
 		const videoChunkQuery = `
          SELECT
@@ -32,7 +33,7 @@ export async function getStartDate() {
          LIMIT 1
 `;
 
-		const videoFetch = fetch("http://localhost:3030/raw_sql", {
+		const videoFetch = fetch(getRawSqlUrl(port), {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -40,7 +41,7 @@ export async function getStartDate() {
 			body: JSON.stringify({ query: videoChunkQuery }),
 		});
 
-		const audioFetch = fetch("http://localhost:3030/raw_sql", {
+		const audioFetch = fetch(getRawSqlUrl(port), {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

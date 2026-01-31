@@ -4,7 +4,7 @@ use crate::capture_screenshot_by_window::{
 use crate::core::MaxAverageFrame;
 use crate::custom_ocr::CustomOcrConfig;
 use crate::monitor::SafeMonitor;
-use image::DynamicImage;
+use image::{DynamicImage, GenericImageView};
 use image_compare::{Algorithm, Metric, Similarity};
 use screenpipe_db::CustomOcrConfig as DBCustomOcrConfig;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -98,6 +98,33 @@ pub async fn capture_screenshot(
                 Vec::new()
             }
         };
+
+    // Fallback: if no window images were captured (e.g. macOS Intel where per-window
+    // capture is disabled due to xcap threading issues), create a single fullscreen
+    // CapturedWindow from the monitor image so OCR still runs on the screen content.
+    let window_images = if window_images.is_empty() {
+        let (width, height) = image.dimensions();
+        debug!(
+            "No window images captured for monitor {}, using fullscreen fallback ({}x{})",
+            monitor.id(),
+            width,
+            height
+        );
+        vec![CapturedWindow {
+            image: image.clone(),
+            app_name: "fullscreen".to_string(),
+            window_name: format!("monitor_{}", monitor.id()),
+            process_id: 0,
+            is_focused: true,
+            browser_url: None,
+            window_x: 0,
+            window_y: 0,
+            window_width: width,
+            window_height: height,
+        }]
+    } else {
+        window_images
+    };
 
     Ok((image, window_images, image_hash, capture_duration))
 }

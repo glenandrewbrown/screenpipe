@@ -21,8 +21,8 @@ import { useQueryStates } from "nuqs";
 import { commands } from "@/lib/utils/tauri";
 import { Badge } from "./ui/badge";
 import { usePlatform } from "@/lib/hooks/use-platform";
-
-const SCREENPIPE_API = "http://localhost:3030";
+import { useSettings } from "@/lib/hooks/use-settings";
+import { getBaseHttpUrl } from "@/lib/utils/api-url";
 
 interface SearchResult {
 	type: "OCR" | "Audio" | "UI";
@@ -37,6 +37,7 @@ interface SearchResult {
 }
 
 export function SearchCommand() {
+	const { settings } = useSettings();
 	const [open, setOpen] = React.useState(false);
 	const { isMac } = usePlatform();
 
@@ -110,7 +111,7 @@ export function SearchCommand() {
 				params.append("end_time", options.end_time.toISOString());
 			}
 
-			const response = await fetch(`${SCREENPIPE_API}/search?${params.toString()}`);
+			const response = await fetch(`${getBaseHttpUrl(settings.port)}/search?${params.toString()}`);
 			if (!response.ok) throw new Error(`Search failed: ${response.status}`);
 
 			const data = await response.json();

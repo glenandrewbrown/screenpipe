@@ -10,9 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Trash2, Loader2 } from "lucide-react";
 import localforage from "localforage";
 import { useToast } from "@/components/ui/use-toast";
+import { useSettings } from "@/lib/hooks/use-settings";
+import { getBaseHttpUrl } from "@/lib/utils/api-url";
 
 export function BreakingChangesInstructionsDialog() {
   const { toast } = useToast();
+  const { settings } = useSettings();
   const [open, setOpen] = useState(false);
   const [hasShownDialog, setHasShownDialog] = useState(false);
   const [hasPipes, setHasPipes] = useState(false);
@@ -24,7 +27,7 @@ export function BreakingChangesInstructionsDialog() {
       setHasShownDialog(!!shown);
 
       try {
-        const response = await fetch("http://localhost:3030/pipes/list");
+        const response = await fetch(`${getBaseHttpUrl(settings.port)}/pipes/list`);
         const data = await response.json();
         setHasPipes(data?.data?.length > 0);
       } catch (error) {
@@ -44,7 +47,7 @@ export function BreakingChangesInstructionsDialog() {
   const handleResetAllPipes = async () => {
     setIsDeleting(true);
     try {
-      const response = await fetch(`http://localhost:3030/pipes/purge`, {
+      const response = await fetch(`${getBaseHttpUrl(settings.port)}/pipes/purge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

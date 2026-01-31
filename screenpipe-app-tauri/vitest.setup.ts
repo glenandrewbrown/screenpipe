@@ -7,14 +7,14 @@ if (typeof window === "undefined") {
   });
 
   const globalWithDom = globalThis as typeof globalThis & {
-    window: Window;
+    window: Window & typeof globalThis;
     document: Document;
     navigator: Navigator;
     location: Location;
     HTMLElement: typeof HTMLElement;
   };
 
-  globalWithDom.window = dom.window as unknown as Window;
+  globalWithDom.window = dom.window as unknown as Window & typeof globalThis;
   globalWithDom.document = dom.window.document;
   globalWithDom.navigator = dom.window.navigator as Navigator;
   globalWithDom.location = dom.window.location;

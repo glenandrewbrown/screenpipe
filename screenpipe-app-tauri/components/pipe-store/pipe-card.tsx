@@ -16,6 +16,7 @@ import { toast } from "@/components/ui/use-toast";
 import { motion } from "framer-motion";
 import posthog from "posthog-js";
 import { useSettings } from "@/lib/hooks/use-settings";
+import { getBaseHttpUrl } from "@/lib/utils/api-url";
 import {
   Tooltip,
   TooltipContent,
@@ -115,7 +116,7 @@ export const PipeCard: React.FC<PipeCardProps> = ({
       const id = pipe.is_local ? pipe.id : pipe.name;
       try {
         const response = await fetch(
-          `http://localhost:3030/pipes/build-status/${id}`
+          `${getBaseHttpUrl(settings.port)}/pipes/build-status/${id}`
         );
 
         if (!response.ok) {

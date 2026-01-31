@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { SpeakerBadge } from "@/components/speaker-badge";
 import { useToast } from "@/components/ui/use-toast";
 import { Check, Ghost, Loader2, Plus, Volume2 } from "lucide-react";
+import { getBaseHttpUrl } from "@/lib/utils/api-url";
+import { useSettings } from "@/lib/hooks/use-settings";
 import { VideoComponent } from "@/components/rewind/video";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +33,7 @@ export function SpeakerAssignPopover({
 	audioFilePath,
 	onAssigned,
 }: SpeakerAssignPopoverProps) {
+	const { settings } = useSettings();
 	const [open, setOpen] = useState(false);
 	const [searchTerm, setSearchTerm] = useState("");
 	const [speakers, setSpeakers] = useState<Speaker[]>([]);
@@ -50,7 +53,7 @@ export function SpeakerAssignPopover({
 			setIsSearching(true);
 			try {
 				const response = await fetch(
-					`http://localhost:3030/speakers/search?name=${encodeURIComponent(searchTerm)}`
+					`${getBaseHttpUrl(settings.port)}/speakers/search?name=${encodeURIComponent(searchTerm)}`
 				);
 				if (response.ok) {
 					const results = await response.json();
@@ -73,7 +76,7 @@ export function SpeakerAssignPopover({
 
 			setIsAssigning(true);
 			try {
-				const response = await fetch("http://localhost:3030/speakers/reassign", {
+				const response = await fetch(`${getBaseHttpUrl(settings.port)}/speakers/reassign`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
@@ -115,7 +118,7 @@ export function SpeakerAssignPopover({
 
 		setIsAssigning(true);
 		try {
-			const response = await fetch("http://localhost:3030/speakers/hallucination", {
+			const response = await fetch(`${getBaseHttpUrl(settings.port)}/speakers/hallucination`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ speaker_id: speakerId }),

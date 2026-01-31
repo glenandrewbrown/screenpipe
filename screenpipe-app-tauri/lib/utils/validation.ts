@@ -108,6 +108,7 @@ export const settingsStoreSchema = z.object({
   analyticsId: z.string(),
   embeddedLLM: embeddedLLMSchema,
   user: userSchema,
+  deviceId: z.string().optional(),
 });
 
 // Validation results

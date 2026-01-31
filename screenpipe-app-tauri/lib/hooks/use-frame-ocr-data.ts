@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { getFrameOcrUrl } from "../utils/api-url";
 
 export interface TextBounds {
 	left: number;
@@ -82,7 +83,8 @@ const globalOcrCache = new OcrCache(100);
  */
 export function useFrameOcrData(
 	frameId: number | null,
-	options: UseFrameOcrDataOptions = {}
+	options: UseFrameOcrDataOptions = {},
+	port?: number,
 ): UseFrameOcrDataReturn {
 	const { autoFetch = true } = options;
 
@@ -123,7 +125,7 @@ export function useFrameOcrData(
 
 		try {
 			const response = await fetch(
-				`http://localhost:3030/frames/${frameId}/ocr`,
+				getFrameOcrUrl(String(frameId), port),
 				{ signal: controller.signal }
 			);
 

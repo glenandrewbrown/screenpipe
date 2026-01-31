@@ -6,7 +6,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { useEffect } from "react";
 import { DeeplinkHandler } from "@/components/deeplink-handler";
 import { ShortcutTracker } from "@/components/shortcut-reminder";
-import { GlobalChat } from "@/components/global-chat";
+import dynamic from "next/dynamic";
+
+const GlobalChat = dynamic(() => import("@/components/global-chat").then(mod => ({ default: mod.GlobalChat })));
 import { usePathname } from "next/navigation";
 
 const inter = Inter({ subsets: ["latin"] });

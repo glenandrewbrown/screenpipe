@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { StreamTimeSeriesResponse } from "@/components/rewind/timeline";
 import { hasFramesForDate } from "../actions/has-frames-date";
 import { subDays } from "date-fns";
+import { getStreamFramesUrl } from "../utils/api-url";
 
 // Frame buffer for batching updates - reduces 68 re-renders to ~3-5
 let frameBuffer: StreamTimeSeriesResponse[] = [];
@@ -38,6 +39,7 @@ interface TimelineState {
 	currentDate: Date;
 	websocket: WebSocket | null;
 	sentRequests: Set<string>;
+	port: number | undefined;
 	// Track new frames for animation and position adjustment
 	newFramesCount: number; // How many new frames were added at the front (for animation)
 	lastFlushTimestamp: number; // Timestamp of last flush (to trigger effects)
@@ -48,6 +50,7 @@ interface TimelineState {
 	setError: (error: string | null) => void;
 	setMessage: (message: string | null) => void;
 	setCurrentDate: (date: Date) => void;
+	setPort: (port: number) => void;
 	connectWebSocket: () => void;
 	fetchTimeRange: (startTime: Date, endTime: Date) => void;
 	fetchNextDayData: (date: Date) => void;
@@ -67,6 +70,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 	currentDate: new Date(),
 	websocket: null,
 	sentRequests: new Set<string>(),
+	port: undefined,
 	newFramesCount: 0,
 	lastFlushTimestamp: 0,
 
@@ -76,6 +80,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 	setMessage: (message) => set({ message }),
 	setCurrentDate: (date) => set({ currentDate: date }),
 	clearNewFramesCount: () => set({ newFramesCount: 0 }),
+	setPort: (port: number) => set({ port }),
 
 	hasDateBeenFetched: (date: Date) => {
 		const { sentRequests } = get();
@@ -121,17 +126,26 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 				updatedTimestamps.add(frame.timestamp);
 			});
 
-			// Single sort per flush instead of per-message
-			// Parse timestamps once for sorting
-			const mergedFrames = [...state.frames, ...newUniqueFrames].sort(
-				(a, b) => {
-					// Direct string comparison works for ISO timestamps (lexicographic = chronologic)
-					return b.timestamp.localeCompare(a.timestamp);
+			// Binary insertion into already-sorted array (descending by timestamp)
+			// This is O(m * log n) where m = new frames, n = existing frames
+			// Much faster than re-sorting all frames O((n+m) * log(n+m)) every 150ms
+			const mergedFrames = [...state.frames];
+			for (const frame of newUniqueFrames) {
+				let low = 0;
+				let high = mergedFrames.length;
+				while (low < high) {
+					const mid = (low + high) >>> 1;
+					// Descending order: newer timestamps first
+					if (mergedFrames[mid].timestamp.localeCompare(frame.timestamp) > 0) {
+						low = mid + 1;
+					} else {
+						high = mid;
+					}
 				}
-			);
+				mergedFrames.splice(low, 0, frame);
+			}
 
 			// Count how many new frames ended up at the front (newer than previous newest)
-			// This is used for: 1) animation pulse, 2) adjusting currentIndex when not at live edge
 			const previousNewest = state.frames[0]?.timestamp;
 			let newAtFront = 0;
 			if (previousNewest) {
@@ -139,7 +153,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 					if (frame.timestamp.localeCompare(previousNewest) > 0) {
 						newAtFront++;
 					} else {
-						break; // Sorted descending, so once we hit older frames, stop
+						break;
 					}
 				}
 			}
@@ -198,7 +212,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 			requestTimeoutTimer = null;
 		}
 
-		const ws = new WebSocket("ws://localhost:3030/stream/frames");
+		const ws = new WebSocket(getStreamFramesUrl(get().port));
 
 		ws.onopen = () => {
 			// Ignore events from old WebSocket instances
@@ -436,7 +450,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 	},
 
 	fetchNextDayData: async (date: Date) => {
-		const dateFramesLen = await hasFramesForDate(date);
+		const dateFramesLen = await hasFramesForDate(date, get().port);
 
 		if (typeof dateFramesLen === "object" && dateFramesLen.error) {
 			return;

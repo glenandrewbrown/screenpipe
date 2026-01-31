@@ -380,20 +380,33 @@ impl DatabaseManager {
         let mut tx = self.pool.begin().await?;
         debug!("insert_frame Transaction started");
 
-        // Get the most recent video_chunk_id and file_path
-        let video_chunk: Option<(i64, String)> = sqlx::query_as(
-            "SELECT id, file_path FROM video_chunks WHERE device_name = ?1 ORDER BY id DESC LIMIT 1",
-        )
-        .bind(device_name)
-        .fetch_optional(&mut *tx)
-        .await?;
+        // Retry logic for fetching video chunk to handle race conditions
+        let mut video_chunk = None;
+        for i in 0..3 {
+            video_chunk = sqlx::query_as::<_, (i64, String)>(
+                "SELECT id, file_path FROM video_chunks WHERE device_name = ?1 ORDER BY id DESC LIMIT 1",
+            )
+            .bind(device_name)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            if video_chunk.is_some() {
+                break;
+            }
+
+            if i < 2 {
+                debug!("No video chunk found, retrying in 100ms (attempt {}/3)", i + 1);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+        
         debug!("Fetched most recent video_chunk: {:?}", video_chunk);
 
         // If no video chunk is found, return 0
         let (video_chunk_id, file_path) = match video_chunk {
             Some((id, path)) => (id, path),
             None => {
-                debug!("No video chunk found, rolling back transaction");
+                debug!("No video chunk found after retries, rolling back transaction");
                 tx.rollback().await?;
                 return Ok(0);
             }

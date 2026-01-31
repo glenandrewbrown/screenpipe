@@ -6,6 +6,7 @@ import { commands, LogFile } from "@/lib/utils/tauri";
 import { useState, useEffect } from "react";
 import { useCopyToClipboard } from "@/lib/hooks/use-copy-to-clipboard";
 import { useSettings } from "@/lib/hooks/use-settings";
+import { getRawSqlUrl, getBaseHttpUrl } from "@/lib/utils/api-url";
 import { getVersion } from "@tauri-apps/api/app";
 import {
   version as osVersion,
@@ -119,7 +120,7 @@ export const ShareLogsButton = ({
     setIsLoadingVideo(true);
     try {
       // Fetch last video chunks
-      const response = await fetch("http://localhost:3030/raw_sql", {
+      const response = await fetch(getRawSqlUrl(settings.port), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -136,7 +137,7 @@ export const ShareLogsButton = ({
 
       // Merge frames
       const mergeResponse = await fetch(
-        "http://localhost:3030/experimental/frames/merge",
+        `${getBaseHttpUrl(settings.port)}/experimental/frames/merge`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

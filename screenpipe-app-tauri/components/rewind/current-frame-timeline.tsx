@@ -3,6 +3,8 @@ import React, { FC, useState, useRef } from "react";
 import { useFrameOcrData } from "@/lib/hooks/use-frame-ocr-data";
 import { TextOverlay } from "@/components/text-overlay";
 import { FileX, ImageOff, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { useSettings } from "@/lib/hooks/use-settings";
+import { getFrameUrl } from "@/lib/utils/api-url";
 
 interface CurrentFrameTimelineProps {
 	currentFrame: StreamTimeSeriesResponse;
@@ -31,6 +33,7 @@ export const CurrentFrameTimeline: FC<CurrentFrameTimelineProps> = ({
 	canNavigatePrev = true,
 	canNavigateNext = true,
 }) => {
+	const { settings } = useSettings();
 	const [isLoading, setIsLoading] = useState(true);
 	const [hasError, setHasError] = useState(false);
 	const [retryCount, setRetryCount] = useState(0);
@@ -49,7 +52,7 @@ export const CurrentFrameTimeline: FC<CurrentFrameTimelineProps> = ({
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	const frameId = currentFrame?.devices?.[0]?.frame_id;
-	const imageUrl = `http://localhost:3030/frames/${frameId}`;
+	const imageUrl = getFrameUrl(frameId, settings.port);
 
 	// Fetch OCR text positions for text selection overlay
 	const { textPositions } = useFrameOcrData(

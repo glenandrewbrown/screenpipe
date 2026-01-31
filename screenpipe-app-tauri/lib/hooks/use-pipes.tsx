@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getPipesListUrl } from "../utils/api-url";
 
 export type Pipe = {
   enabled: boolean;
@@ -287,7 +288,7 @@ export const usePipes = (initialRepoUrls: string[]) => {
       }
 
       // get pipes from local api /pipes/list and add them to the list
-      const localPipes = await fetch(`http://localhost:3030/pipes/list`).then(
+      const localPipes = await fetch(getPipesListUrl()).then(
         (res) => res.json()
       );
       // console.log("localPipes", localPipes);

@@ -27,7 +27,7 @@ export default function Home() {
   const { settings, updateSettings, loadUser, reloadStore, isSettingsLoaded, loadingError } = useSettings();
   const { toast } = useToast();
   const { onboardingData } = useOnboarding();
-  const { isServerDown, isLoading: isHealthLoading } = useHealthCheck();
+  const { isServerDown, isLoading: isHealthLoading } = useHealthCheck(settings.port);
   const { isMac } = usePlatform();
   const [isRestarting, setIsRestarting] = useState(false);
   const isProcessingRef = useRef(false);

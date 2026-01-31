@@ -454,10 +454,10 @@ async fn save_frames_as_video(
                 "Starting new video chunk: {} for monitor {}",
                 output_file, monitor_id
             );
-            new_chunk_callback(&output_file);
 
             match start_ffmpeg_process(&output_file, fps).await {
                 Ok(mut child) => {
+                    new_chunk_callback(&output_file);
                     let mut stdin = child.stdin.take().expect("Failed to open stdin");
                     spawn_ffmpeg_loggers(child.stderr.take(), child.stdout.take());
 

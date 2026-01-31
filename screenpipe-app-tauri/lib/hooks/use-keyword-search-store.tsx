@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getSearchUrl } from "../utils/api-url";
 
 export interface SearchMatch {
 	frame_id: number;
@@ -42,7 +43,9 @@ export interface KeywordSearchState {
 	lastRequest: SearchRequest | null;
 	activeRequestId: string | null;
 	currentAbortController: AbortController | null;
+	port: number | undefined;
 
+	setPort: (port: number) => void;
 	searchKeywords: (
 		query: string,
 		options?: {
@@ -68,6 +71,7 @@ const offset_default = 0;
 
 export const useKeywordSearchStore = create<KeywordSearchState>((set, get) => ({
 	searchResults: [],
+	port: undefined,
 	currentResultIndex: -1,
 	isSearching: false,
 	searchQuery: "",
@@ -76,6 +80,7 @@ export const useKeywordSearchStore = create<KeywordSearchState>((set, get) => ({
 	activeRequestId: null,
 	currentAbortController: null,
 
+	setPort: (port: number) => set({ port }),
 	searchKeywords: async (query, options = {}, signal?: AbortSignal) => {
 		if (query.length === 0) return;
 
@@ -199,7 +204,7 @@ export const useKeywordSearchStore = create<KeywordSearchState>((set, get) => ({
 			}
 
 			const response = await fetch(
-				`http://localhost:3030/search/keyword?${params}`,
+				`${getSearchUrl(get().port)}?${params}`,
 				{ signal: combinedSignal.signal },
 			);
 

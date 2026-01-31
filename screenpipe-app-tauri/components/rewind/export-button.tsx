@@ -3,9 +3,9 @@ import { Loader2, Video } from "lucide-react";
 import { useTimelineSelection } from "@/lib/hooks/use-timeline-selection";
 import { toast } from "@/components/ui/use-toast";
 import { useSettings } from "@/lib/hooks/use-settings";
-import { parseInt } from "lodash";
 import posthog from "posthog-js";
 import { cn } from "@/lib/utils";
+import { getFramesExportWsUrl } from "@/lib/utils/api-url";
 
 export function ExportButton() {
 	const [isExporting, setIsExporting] = useState(false);
@@ -36,7 +36,7 @@ export function ExportButton() {
 			let ws: WebSocket | null = null;
 
 			const sortedFrameIds = selectionRange.frameIds.sort(
-				(a, b) => parseInt(a) - parseInt(b),
+				(a, b) => Number.parseInt(a) - Number.parseInt(b),
 			);
 
 			// Helper function to safely close the WebSocket
@@ -58,7 +58,7 @@ export function ExportButton() {
 
 			// Create WebSocket connection
 			ws = new WebSocket(
-				`ws://localhost:3030/frames/export?frame_ids=${sortedFrameIds.join(",")}&fps=${settings.fps ?? 0.5}`,
+				getFramesExportWsUrl(sortedFrameIds, settings.fps ?? 0.5, settings.port),
 			);
 
 			// Set a timeout to handle connection issues

@@ -1,30 +1,32 @@
 import { format } from "date-fns";
-import { useEffect, useRef, useMemo, useState, RefObject, useCallback } from "react";
+import { memo, useEffect, useRef, useMemo, useState, RefObject, useCallback } from "react";
 import { SearchMatch } from "@/lib/hooks/use-keyword-search-store";
 import { useKeywordSearchStore } from "@/lib/hooks/use-keyword-search-store";
 import { cn } from "@/lib/utils";
-import { throttle } from "lodash";
+import { throttle } from "@/lib/utils/throttle";
 import { Loader2, ImageOff, ExternalLink } from "lucide-react";
 import { useKeywordParams } from "@/lib/hooks/use-keyword-params";
 import { useFrameOcrData } from "@/lib/hooks/use-frame-ocr-data";
 import { TextOverlay } from "@/components/text-overlay";
+import { useSettings } from "@/lib/hooks/use-settings";
+import { getFrameUrl } from "@/lib/utils/api-url";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-const useImageWithRetry = (frameId: number) => {
-	const [src, setSrc] = useState(`http://localhost:3030/frames/${frameId}`);
+const useImageWithRetry = (frameId: number, port?: number) => {
+	const [src, setSrc] = useState(getFrameUrl(String(frameId), port));
 	const [isLoading, setIsLoading] = useState(true);
 	const [hasError, setHasError] = useState(false);
 	const retryCount = useRef(0);
 
 	// Reset state when frameId changes
 	useEffect(() => {
-		setSrc(`http://localhost:3030/frames/${frameId}`);
+		setSrc(getFrameUrl(String(frameId), port));
 		setIsLoading(true);
 		setHasError(false);
 		retryCount.current = 0;
-	}, [frameId]);
+	}, [frameId, port]);
 
 	const handleLoad = useCallback(() => {
 		setIsLoading(false);
@@ -35,19 +37,19 @@ const useImageWithRetry = (frameId: number) => {
 		if (retryCount.current < MAX_RETRIES) {
 			retryCount.current += 1;
 			setTimeout(() => {
-				setSrc(`http://localhost:3030/frames/${frameId}?retry=${retryCount.current}`);
+				setSrc(`${getFrameUrl(String(frameId), port)}?retry=${retryCount.current}`);
 			}, RETRY_DELAY * retryCount.current);
 		} else {
 			setIsLoading(false);
 			setHasError(true);
 		}
-	}, [frameId]);
+	}, [frameId, port]);
 
 	return { src, isLoading, hasError, handleLoad, handleError };
 };
 
-const FrameImage = ({ frameId, alt }: { frameId: number; alt: string }) => {
-	const { src, isLoading, hasError, handleLoad, handleError } = useImageWithRetry(frameId);
+const FrameImage = memo(function FrameImage({ frameId, alt, port }: { frameId: number; alt: string; port?: number }) {
+	const { src, isLoading, hasError, handleLoad, handleError } = useImageWithRetry(frameId, port);
 
 	return (
 		<div className="aspect-video overflow-hidden relative">
@@ -77,7 +79,7 @@ const FrameImage = ({ frameId, alt }: { frameId: number; alt: string }) => {
 			)}
 		</div>
 	);
-};
+});
 
 export const SkeletonCard = () => (
 	<div className="flex flex-col relative overflow-hidden bg-card border border-border">
@@ -99,6 +101,7 @@ export const ImageGrid = ({
 	searchResult: SearchMatch[];
 	pageRef: RefObject<HTMLDivElement | null>;
 }) => {
+	const { settings } = useSettings();
 	const containerRef = useRef<HTMLDivElement>(null);
 	const { setCurrentResultIndex, currentResultIndex, searchKeywords } =
 		useKeywordSearchStore();
@@ -202,6 +205,7 @@ export const ImageGrid = ({
 							<FrameImage
 								frameId={result.frame_id}
 								alt={`${result.app_name} - ${result.window_name}`}
+								port={settings.port}
 							/>
 							<div className="p-2 space-y-1 border-t border-border">
 								<p className="text-sm font-mono truncate">
@@ -225,6 +229,7 @@ export const ImageGrid = ({
 };
 
 export const MainImage = () => {
+	const { settings } = useSettings();
 	const { searchResults, currentResultIndex } = useKeywordSearchStore();
 	const imageRef = useRef<HTMLImageElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -244,7 +249,7 @@ export const MainImage = () => {
 	const currentFrame = searchResults[currentResultIndex];
 
 	// Call hook unconditionally (React rules of hooks)
-	const { src, isLoading, hasError, handleLoad, handleError } = useImageWithRetry(currentFrame?.frame_id ?? 0);
+	const { src, isLoading, hasError, handleLoad, handleError } = useImageWithRetry(currentFrame?.frame_id ?? 0, settings.port);
 
 	// Fetch OCR text positions for text selection overlay
 	const { textPositions, isLoading: isOcrLoading } = useFrameOcrData(

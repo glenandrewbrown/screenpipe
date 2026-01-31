@@ -12,7 +12,6 @@ import { useSettings } from "@/lib/hooks/use-settings";
 import { cn } from "@/lib/utils";
 import { Loader2, Send, Square, User, X, Settings, ExternalLink, Video } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
-import { parseInt } from "lodash";
 import { motion, AnimatePresence } from "framer-motion";
 import { PipeAIIcon, PipeAIIconLarge } from "@/components/pipe-ai-icon";
 import { MemoizedReactMarkdown } from "@/components/markdown";
@@ -28,8 +27,7 @@ import { useTimelineSelection } from "@/lib/hooks/use-timeline-selection";
 import { useSqlAutocomplete } from "@/lib/hooks/use-sql-autocomplete";
 import { commands } from "@/lib/utils/tauri";
 import { UpgradeDialog } from "@/components/upgrade-dialog";
-
-const SCREENPIPE_API = "http://localhost:3030";
+import { getBaseHttpUrl, getFramesExportWsUrl } from "@/lib/utils/api-url";
 
 // ============================================================================
 // @MENTION SYSTEM - Time, Content Type, and App filters
@@ -497,7 +495,7 @@ export function GlobalChat() {
       let ws: WebSocket | null = null;
 
       const sortedFrameIds = selectionRange.frameIds.sort(
-        (a, b) => parseInt(a) - parseInt(b),
+        (a, b) => Number.parseInt(a) - Number.parseInt(b),
       );
 
       const closeWebSocket = () => {
@@ -509,7 +507,7 @@ export function GlobalChat() {
       };
 
       ws = new WebSocket(
-        `ws://localhost:3030/frames/export?frame_ids=${sortedFrameIds.join(",")}&fps=${settings.fps ?? 0.5}`,
+        getFramesExportWsUrl(sortedFrameIds, settings.fps ?? 0.5, settings.port),
       );
 
       const connectionTimeout = setTimeout(() => {
@@ -650,7 +648,7 @@ export function GlobalChat() {
       setIsLoadingSpeakers(true);
       try {
         const response = await fetch(
-          `${SCREENPIPE_API}/speakers/search?name=${encodeURIComponent(mentionFilter)}`
+          `${getBaseHttpUrl(settings.port)}/speakers/search?name=${encodeURIComponent(mentionFilter)}`
         );
         if (response.ok) {
           const speakers: Speaker[] = await response.json();
@@ -756,8 +754,8 @@ export function GlobalChat() {
   // Check if we have valid AI setup
   const hasPresets = settings.aiPresets && settings.aiPresets.length > 0;
   const hasValidModel = activePreset?.model && activePreset.model.trim() !== "";
-  const needsLogin = activePreset?.provider === "screenpipe-cloud" && !settings.user?.token;
-  const canChat = hasPresets && hasValidModel && !needsLogin;
+  // Note: Login requirement removed - all features work locally
+  const canChat = hasPresets && hasValidModel;
 
   // Debug: log why chat might be disabled
   useEffect(() => {
@@ -768,18 +766,16 @@ export function GlobalChat() {
         model: activePreset.model,
         url: activePreset.url,
         hasValidModel,
-        needsLogin,
         canChat,
       });
     }
-  }, [open, activePreset, hasValidModel, needsLogin, canChat]);
+  }, [open, activePreset, hasValidModel, canChat]);
 
   // Get error message for why chat is disabled
   const getDisabledReason = (): string | null => {
     if (!hasPresets) return "No AI presets configured";
     if (!activePreset) return "No preset selected";
     if (!hasValidModel) return `No model selected in "${activePreset.id}" preset - click edit to add one`;
-    if (needsLogin) return "Login required for Screenpipe Cloud";
     return null;
   };
   const disabledReason = getDisabledReason();
@@ -861,7 +857,7 @@ export function GlobalChat() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
-      const response = await fetch(`${SCREENPIPE_API}/search?${params.toString()}`, {
+      const response = await fetch(`${getBaseHttpUrl(settings.port)}/search?${params.toString()}`, {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -1337,9 +1333,7 @@ export function GlobalChat() {
               <div className="relative flex flex-col items-center justify-center py-12 space-y-4">
                 <div className={cn(
                   "relative p-6 rounded-2xl border",
-                  needsLogin
-                    ? "bg-muted/50 border-border/50"
-                    : "bg-destructive/5 border-destructive/20"
+                  "bg-destructive/5 border-destructive/20"
                 )}>
                   {/* Corner accents */}
                   <div className="absolute top-0 left-0 w-4 h-4 border-l-2 border-t-2 border-current opacity-20 rounded-tl" />
@@ -1347,30 +1341,16 @@ export function GlobalChat() {
                   <div className="absolute bottom-0 left-0 w-4 h-4 border-l-2 border-b-2 border-current opacity-20 rounded-bl" />
                   <div className="absolute bottom-0 right-0 w-4 h-4 border-r-2 border-b-2 border-current opacity-20 rounded-br" />
 
-                  {needsLogin ? (
-                    <PipeAIIconLarge size={48} className="text-muted-foreground" />
-                  ) : (
-                    <Settings className="h-12 w-12 text-destructive/70" />
-                  )}
+                  <Settings className="h-12 w-12 text-destructive/70" />
                 </div>
                 <div className="text-center space-y-2">
                   <h3 className="font-semibold tracking-tight">
-                    {!hasPresets ? "No AI Presets" : !hasValidModel ? "No Model Selected" : "Login Required"}
+                    {!hasPresets ? "No AI Presets" : "No Model Selected"}
                   </h3>
                   <p className="text-sm text-muted-foreground max-w-sm">
                     {disabledReason}
                   </p>
                 </div>
-                {needsLogin && (
-                  <Button
-                    variant="default"
-                    onClick={() => openUrl("https://screenpi.pe/login")}
-                    className="gap-2 font-medium bg-foreground text-background hover:bg-foreground/90"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Login
-                  </Button>
-                )}
                 {!hasPresets && (
                   <Button
                     variant="outline"

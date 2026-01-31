@@ -98,20 +98,42 @@ const DEFAULT_IGNORED_WINDOWS_PER_OS: Record<string, string[]> = {
 	linux: ["Info center", "Discover", "Parted"],
 };
 
-// Default free AI preset that works without login
-// Note: screenpipe-cloud provider doesn't require apiKey
+// Default local AI preset - uses Ollama (no login required)
+const DEFAULT_LOCAL_PRESET: AIPreset = {
+	id: "local-ollama",
+	provider: "native-ollama",
+	url: "http://localhost:11434/v1",
+	model: "llama3.2:3b",
+	maxContextChars: 128000,
+	defaultPreset: true,
+	prompt: DEFAULT_PROMPT,
+};
+
+// Alternative OpenAI preset for users who have their own key
+const DEFAULT_OPENAI_PRESET: AIPreset = {
+	id: "openai",
+	provider: "openai",
+	url: "https://api.openai.com/v1",
+	model: "gpt-4o-mini",
+	maxContextChars: 128000,
+	defaultPreset: false,
+	prompt: DEFAULT_PROMPT,
+	apiKey: "",
+};
+
+// Keep cloud preset as option but not default
 const DEFAULT_FREE_PRESET: AIPreset = {
 	id: "screenpipe-free",
 	provider: "screenpipe-cloud",
 	url: "https://api.screenpi.pe/v1",
 	model: "claude-haiku-4-5@20251001",
 	maxContextChars: 128000,
-	defaultPreset: true,
+	defaultPreset: false, // Not default anymore
 	prompt: DEFAULT_PROMPT,
 };
 
 let DEFAULT_SETTINGS: Settings = {
-			aiPresets: [DEFAULT_FREE_PRESET as any],
+			aiPresets: [DEFAULT_LOCAL_PRESET as any, DEFAULT_OPENAI_PRESET as any],
 			deviceId: crypto.randomUUID(),
 			deepgramApiKey: "",
 			isLoading: false,
@@ -225,10 +247,22 @@ function createSettingsStore() {
 			needsUpdate = true;
 		}
 
-		// Migration: Add default free preset if user has no presets
+		// Migration: Add local Ollama preset if not present
 		if (!settings.aiPresets || settings.aiPresets.length === 0) {
-			settings.aiPresets = [DEFAULT_FREE_PRESET as any];
+			settings.aiPresets = [DEFAULT_LOCAL_PRESET as any, DEFAULT_OPENAI_PRESET as any];
 			needsUpdate = true;
+		} else {
+			// Migration: Ensure local Ollama preset exists for existing users
+			const hasLocalPreset = settings.aiPresets.some((p: any) => p.id === "local-ollama");
+			if (!hasLocalPreset) {
+				settings.aiPresets = [DEFAULT_LOCAL_PRESET as any, ...settings.aiPresets];
+				// Set local preset as default
+				settings.aiPresets = settings.aiPresets.map((p: any) => ({
+					...p,
+					defaultPreset: p.id === "local-ollama"
+				}));
+				needsUpdate = true;
+			}
 		}
 
 		// Save migrations if needed

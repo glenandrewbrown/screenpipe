@@ -1,9 +1,9 @@
 import { StreamTimeSeriesResponse, TimeRange } from "@/components/rewind/timeline";
 import { useTimelineSelection } from "@/lib/hooks/use-timeline-selection";
 import { isAfter, subDays } from "date-fns";
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import { AudioLinesIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import posthog from "posthog-js";
 
 interface TimelineSliderProps {
@@ -14,8 +14,8 @@ interface TimelineSliderProps {
 	fetchNextDayData: (date: Date) => void;
 	currentDate: Date;
 	onSelectionChange?: (selectedFrames: StreamTimeSeriesResponse[]) => void;
-	newFramesCount?: number; // Number of new frames added (for animation)
-	lastFlushTimestamp?: number; // When frames were last added (to trigger animation)
+	newFramesCount?: number;
+	lastFlushTimestamp?: number;
 }
 
 interface AppGroup {
@@ -38,7 +38,7 @@ export function stringToColor(str: string): string {
 	return color;
 }
 
-export const TimelineSlider = ({
+export const TimelineSlider = memo(function TimelineSlider({
 	frames = [],
 	currentIndex,
 	onFrameChange,
@@ -48,15 +48,10 @@ export const TimelineSlider = ({
 	onSelectionChange,
 	newFramesCount = 0,
 	lastFlushTimestamp = 0,
-}: TimelineSliderProps) => {
+}: TimelineSliderProps) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const observerTargetRef = useRef<HTMLDivElement>(null);
 	const lastFetchRef = useRef<Date | null>(null);
-	const { scrollXProgress } = useScroll({
-		container: containerRef,
-		offset: ["start end", "end start"],
-	});
-	const lineWidth = useTransform(scrollXProgress, [0, 1], ["0%", "100%"]);
 	const [hoveredTimestamp, setHoveredTimestamp] = useState<string | null>(null);
 	const [isDragging, setIsDragging] = useState(false);
 	const [dragStartIndex, setDragStartIndex] = useState<number | null>(null);
@@ -65,11 +60,18 @@ export const TimelineSlider = ({
 	);
 	const { setSelectionRange, selectionRange } = useTimelineSelection();
 
+	// Single tooltip state — one element instead of 400 conditional renders
+	const [tooltipData, setTooltipData] = useState<{
+		appName: string;
+		timestamp: string;
+		x: number;
+		y: number;
+	} | null>(null);
+
 	// Animation state for new frames pulse
 	const [showNewFramesPulse, setShowNewFramesPulse] = useState(false);
 	const prevFlushTimestampRef = useRef(lastFlushTimestamp);
 
-	// Trigger pulse animation when new frames arrive
 	useEffect(() => {
 		if (lastFlushTimestamp > prevFlushTimestampRef.current && newFramesCount > 0) {
 			setShowNewFramesPulse(true);
@@ -80,8 +82,7 @@ export const TimelineSlider = ({
 		prevFlushTimestampRef.current = lastFlushTimestamp;
 	}, [lastFlushTimestamp, newFramesCount]);
 
-	// Pre-compute frame index map for O(1) lookups instead of O(n) indexOf
-	// This reduces 2.68M comparisons per render to just 400 Map lookups
+	// Pre-compute frame index map for O(1) lookups
 	const frameIndexMap = useMemo(() => {
 		const map = new Map<string, number>();
 		frames.forEach((frame, index) => {
@@ -99,7 +100,7 @@ export const TimelineSlider = ({
 
 	const appGroups = useMemo(() => {
 		if (!visibleFrames || visibleFrames.length === 0) return [];
-		
+
 		const groups: AppGroup[] = [];
 		let currentApp = "";
 		let currentGroup: StreamTimeSeriesResponse[] = [];
@@ -186,16 +187,16 @@ export const TimelineSlider = ({
 		}
 	}, [selectionRange]);
 
-	const handleDragStart = (index: number) => {
+	const handleDragStart = useCallback((index: number) => {
 		setIsDragging(true);
 		setDragStartIndex(index);
 		setSelectedIndices(new Set([index]));
 
 		const startDate = new Date(frames[index].timestamp);
 		setSelectionRange({ start: startDate, end: startDate, frameIds: [] });
-	};
+	}, [frames, setSelectionRange]);
 
-	const handleDragOver = (index: number) => {
+	const handleDragOver = useCallback((index: number) => {
 		if (isDragging && dragStartIndex !== null && frames && frames.length > 0) {
 			const start = Math.min(dragStartIndex, index);
 			const end = Math.max(dragStartIndex, index);
@@ -207,12 +208,10 @@ export const TimelineSlider = ({
 
 			setSelectedIndices(newSelection);
 
-			// Get frame IDs for the selection - add safety check
 			const selectedFrameIds = Array.from(newSelection).map(
 				(i) => frames[i]?.devices?.[0]?.frame_id || '',
 			).filter(Boolean);
 
-			// Update selection range with frame IDs
 			setSelectionRange({
 				end: new Date(frames[start]?.timestamp || Date.now()),
 				start: new Date(frames[end]?.timestamp || Date.now()),
@@ -224,10 +223,9 @@ export const TimelineSlider = ({
 				onSelectionChange(selectedFrames);
 			}
 		}
-	};
+	}, [isDragging, dragStartIndex, frames, setSelectionRange, onSelectionChange]);
 
-	const handleDragEnd = () => {
-		// Track selection if multiple frames were selected
+	const handleDragEnd = useCallback(() => {
 		if (selectedIndices.size > 1) {
 			posthog.capture("timeline_selection_made", {
 				frames_selected: selectedIndices.size,
@@ -235,15 +233,32 @@ export const TimelineSlider = ({
 		}
 		setIsDragging(false);
 		setDragStartIndex(null);
-	};
+	}, [selectedIndices.size]);
+
+	const handleFrameMouseEnter = useCallback((
+		e: React.MouseEvent,
+		frame: StreamTimeSeriesResponse,
+		frameIndex: number,
+	) => {
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		setTooltipData({
+			appName: frame?.devices?.[0]?.metadata?.app_name || 'Unknown',
+			timestamp: new Date(frame.timestamp).toLocaleString(),
+			x: rect.left + rect.width / 2,
+			y: rect.top,
+		});
+		setHoveredTimestamp(frame.timestamp);
+		if (isDragging) handleDragOver(frameIndex);
+	}, [handleDragOver, isDragging]);
+
+	const handleFrameMouseLeave = useCallback(() => {
+		setTooltipData(null);
+		setHoveredTimestamp(null);
+	}, []);
 
 	return (
 		<div className="relative w-full" dir="rtl">
-			<motion.div
-				className="absolute top-0 h-1 bg-blue-500/50"
-				style={{ width: lineWidth }}
-			/>
-			{/* New frames pulse indicator - appears on right side (newest) */}
+			{/* New frames pulse indicator */}
 			{showNewFramesPulse && (
 				<motion.div
 					className="absolute right-0 top-0 bottom-0 w-24 pointer-events-none z-20"
@@ -263,16 +278,36 @@ export const TimelineSlider = ({
 					</motion.div>
 				</motion.div>
 			)}
+
+			{/* Single floating tooltip — replaces 400 per-frame conditional tooltip renders */}
+			{tooltipData && (
+				<div
+					className="fixed z-[100] w-max bg-popover border border-border rounded-xl px-3 py-2 text-xs shadow-2xl pointer-events-none"
+					style={{
+						left: tooltipData.x,
+						top: tooltipData.y - 60,
+						transform: "translateX(-50%)",
+					}}
+				>
+					<p className="font-medium text-popover-foreground">
+						{tooltipData.appName}
+					</p>
+					<p className="text-muted-foreground">
+						{tooltipData.timestamp}
+					</p>
+				</div>
+			)}
+
 			<div
 				ref={containerRef}
 				className="w-full overflow-x-auto overflow-y-visible scroll-smooth scrollbar-hide bg-gradient-to-t from-black/50 to-black/0"
 				style={{
 					scrollBehavior: "auto",
-					paddingTop: "80px", // Space for tooltips above
+					paddingTop: "80px",
 					paddingBottom: "0px",
 				}}
 			>
-				<motion.div
+				<div
 					className="whitespace-nowrap flex flex-nowrap w-max justify-center px-[50vw] h-24 sticky right-0 scrollbar-hide"
 					onMouseUp={handleDragEnd}
 					onMouseLeave={handleDragEnd}
@@ -293,7 +328,6 @@ export const TimelineSlider = ({
 								/>
 							</div>
 							{group.frames.map((frame) => {
-								// O(1) lookup instead of O(n) indexOf
 								const frameIndex = frameIndexMap.get(frame.timestamp) ?? -1;
 								const isSelected = selectedIndices.has(frameIndex);
 								const frameDate = new Date(frame.timestamp);
@@ -304,66 +338,49 @@ export const TimelineSlider = ({
 
 								const hasAudio = Boolean(frame?.devices?.[0]?.audio?.length);
 								const isCurrent = frameIndex === currentIndex;
+								const isHighlighted = isCurrent || isSelected || isInRange;
 
 								return (
-									<motion.div
+									<div
 										key={frame.timestamp}
 										data-timestamp={frame.timestamp}
-										className={`flex-shrink-0 cursor-pointer w-1.5 mx-0.5 rounded-t relative group hover:z-50 transition-all duration-200 ${
+										className={`flex-shrink-0 cursor-pointer w-1.5 mx-0.5 rounded-t relative hover:z-50 ${
 											isSelected || isInRange
 												? "ring-2 ring-blue-400 ring-offset-1 ring-offset-black/20"
 												: ""
 										}`}
 										style={{
 											backgroundColor: isCurrent ? '#3b82f6' : group.color,
-											height: isCurrent || isSelected || isInRange ? "80%" : "50%",
-											opacity: isCurrent || isSelected || isInRange ? 1 : 0.8,
+											height: isHighlighted ? "80%" : "50%",
+											opacity: isHighlighted ? 1 : 0.8,
 											direction: "ltr",
 											boxShadow: isCurrent ? '0 0 15px rgba(59, 130, 246, 0.6), 0 0 30px rgba(59, 130, 246, 0.3)' : 'none',
-											transform: isCurrent ? 'scale(1.1)' : 'scale(1)',
-											transition: 'all 0.2s ease-out',
-										}}
-										whileHover={{ 
-											height: "80%", 
-											opacity: 1,
-											scale: 1.05,
-											transition: { duration: 0.15 }
-										}}
-										whileTap={{ 
-											scale: 0.95,
-											transition: { duration: 0.1 }
+											transform: isCurrent ? 'scale(1.1)' : hoveredTimestamp === frame.timestamp ? 'scale(1.05)' : 'scale(1)',
+											transition: 'transform 0.15s ease-out, opacity 0.15s ease-out',
 										}}
 										onMouseDown={() => handleDragStart(frameIndex)}
-										onMouseEnter={() => {
-											setHoveredTimestamp(frame.timestamp);
-											handleDragOver(frameIndex);
-										}}
-										onMouseLeave={() => setHoveredTimestamp(null)}
+										onMouseEnter={(e) => handleFrameMouseEnter(e, frame, frameIndex)}
+										onMouseLeave={handleFrameMouseLeave}
 									>
 										{hasAudio && (
 											<div className="absolute -top-4 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-green-400/80">
 												<AudioLinesIcon className="w-full h-full p-0.5" />
 											</div>
 										)}
-										{(hoveredTimestamp === frame.timestamp ||
-											frames[currentIndex]?.timestamp === frame.timestamp) && (
-											<div className="absolute bottom-full left-1/2 z-50 -translate-x-1/2 mb-12 w-max bg-popover border border-border rounded-xl px-3 py-2 text-xs shadow-2xl">
-												<p className="font-medium text-popover-foreground">
-													{frame?.devices?.[0]?.metadata?.app_name || 'Unknown'}
-												</p>
-												<p className="text-muted-foreground">
-													{new Date(frame.timestamp).toLocaleString()}
-												</p>
-											</div>
-										)}
-									</motion.div>
+									</div>
 								);
 							})}
 						</div>
 					))}
 					<div ref={observerTargetRef} className="h-full w-1" />
-				</motion.div>
+				</div>
 			</div>
 		</div>
 	);
-};
+}, (prev, next) =>
+	prev.frames.length === next.frames.length &&
+	prev.currentIndex === next.currentIndex &&
+	prev.lastFlushTimestamp === next.lastFlushTimestamp &&
+	prev.newFramesCount === next.newFramesCount &&
+	prev.currentDate === next.currentDate
+);

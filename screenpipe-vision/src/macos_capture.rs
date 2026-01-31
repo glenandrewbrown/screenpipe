@@ -16,8 +16,10 @@ use image::RgbaImage;
 use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::thread;
-use tracing::debug;
-use xcap::{Monitor, Window, XCapError};
+use tracing::{debug, info};
+#[cfg(not(target_arch = "x86_64"))]
+use xcap::Monitor;
+use xcap::{Window, XCapError};
 
 /// Task sent to the capture worker thread
 type CaptureTask = Box<dyn FnOnce() + Send + 'static>;
@@ -82,49 +84,181 @@ pub struct MonitorInfo {
     pub name: String,
 }
 
-/// Get all monitors using the capture worker thread
+/// Get all monitors.
+/// On Intel Macs, uses Core Graphics C API directly to avoid xcap ObjC crashes.
 pub fn get_all_monitors() -> Result<Vec<MonitorInfo>, XCapError> {
-    run_on_capture_thread(|| {
-        debug!("get_all_monitors executing on thread: {:?}", std::thread::current().name());
-        let monitors = Monitor::all()?;
-        let mut results = Vec::with_capacity(monitors.len());
+    #[cfg(target_arch = "x86_64")]
+    {
+        get_all_monitors_cg()
+    }
 
-        for monitor in monitors {
-            let id = monitor.id().unwrap_or(0);
-            let width = monitor.width().unwrap_or(0);
-            let height = monitor.height().unwrap_or(0);
-            let is_primary = monitor.is_primary().unwrap_or(false);
-            // DO NOT call monitor.name() - it requires main thread
-            let name = format!("Display {}", id);
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        run_on_capture_thread(|| {
+            debug!("get_all_monitors executing on thread: {:?}", std::thread::current().name());
+            let monitors = Monitor::all()?;
+            let mut results = Vec::with_capacity(monitors.len());
 
-            results.push(MonitorInfo {
-                id,
-                width,
-                height,
-                is_primary,
-                name,
-            });
-        }
+            for monitor in monitors {
+                let id = monitor.id().unwrap_or(0);
+                let width = monitor.width().unwrap_or(0);
+                let height = monitor.height().unwrap_or(0);
+                let is_primary = monitor.is_primary().unwrap_or(false);
+                let name = format!("Display {}", id);
 
-        Ok(results)
-    })
+                results.push(MonitorInfo {
+                    id,
+                    width,
+                    height,
+                    is_primary,
+                    name,
+                });
+            }
+
+            Ok(results)
+        })
+    }
 }
 
-/// Capture a monitor image using the capture worker thread
+/// Get all monitors using Core Graphics C API directly (Intel Mac safe).
+#[cfg(target_arch = "x86_64")]
+fn get_all_monitors_cg() -> Result<Vec<MonitorInfo>, XCapError> {
+    info!("get_all_monitors_cg: using Core Graphics API (Intel Mac fallback)");
+
+    // CGGetActiveDisplayList is a plain C function - no ObjC runtime involved
+    extern "C" {
+        fn CGGetActiveDisplayList(
+            max_displays: u32,
+            active_displays: *mut u32,
+            display_count: *mut u32,
+        ) -> i32;
+        fn CGDisplayPixelsWide(display: u32) -> usize;
+        fn CGDisplayPixelsHigh(display: u32) -> usize;
+        fn CGMainDisplayID() -> u32;
+    }
+
+    let mut display_count: u32 = 0;
+
+    // First call to get count
+    let err = unsafe { CGGetActiveDisplayList(0, std::ptr::null_mut(), &mut display_count) };
+    if err != 0 {
+        return Err(XCapError::new(&format!(
+            "CGGetActiveDisplayList failed with error: {}",
+            err
+        )));
+    }
+
+    if display_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    // Second call to get display IDs
+    let mut display_ids = vec![0u32; display_count as usize];
+    let err = unsafe {
+        CGGetActiveDisplayList(display_count, display_ids.as_mut_ptr(), &mut display_count)
+    };
+    if err != 0 {
+        return Err(XCapError::new(&format!(
+            "CGGetActiveDisplayList (get IDs) failed with error: {}",
+            err
+        )));
+    }
+
+    let main_display = unsafe { CGMainDisplayID() };
+
+    let mut results = Vec::with_capacity(display_count as usize);
+    for &display_id in &display_ids[..display_count as usize] {
+        let width = unsafe { CGDisplayPixelsWide(display_id) } as u32;
+        let height = unsafe { CGDisplayPixelsHigh(display_id) } as u32;
+        let is_primary = display_id == main_display;
+
+        debug!(
+            "get_all_monitors_cg: found display {} ({}x{}, primary={})",
+            display_id, width, height, is_primary
+        );
+
+        results.push(MonitorInfo {
+            id: display_id,
+            width,
+            height,
+            is_primary,
+            name: format!("Display {}", display_id),
+        });
+    }
+
+    Ok(results)
+}
+
+/// Capture a monitor image using the capture worker thread.
+/// On macOS Intel (x86_64), uses CGDisplayCreateImage directly to avoid
+/// xcap/ObjC runtime SIGSEGV crashes in lookUpImpOrForward.
 pub fn capture_monitor_image(monitor_id: u32) -> Result<RgbaImage, XCapError> {
-    run_on_capture_thread(move || {
-        debug!("capture_monitor_image executing on thread: {:?}", std::thread::current().name());
-        let monitor = Monitor::all()?
-            .into_iter()
-            .find(|m| m.id().unwrap_or(0) == monitor_id)
-            .ok_or_else(|| XCapError::new("Monitor not found"))?;
+    #[cfg(target_arch = "x86_64")]
+    {
+        capture_monitor_image_cg(monitor_id)
+    }
 
-        if monitor.width().unwrap_or(0) == 0 || monitor.height().unwrap_or(0) == 0 {
-            return Err(XCapError::new("Invalid monitor dimensions"));
-        }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        run_on_capture_thread(move || {
+            debug!("capture_monitor_image executing on thread: {:?}", std::thread::current().name());
+            let monitor = Monitor::all()?
+                .into_iter()
+                .find(|m| m.id().unwrap_or(0) == monitor_id)
+                .ok_or_else(|| XCapError::new("Monitor not found"))?;
 
-        monitor.capture_image()
-    })
+            if monitor.width().unwrap_or(0) == 0 || monitor.height().unwrap_or(0) == 0 {
+                return Err(XCapError::new("Invalid monitor dimensions"));
+            }
+
+            monitor.capture_image()
+        })
+    }
+}
+
+/// Capture a monitor image using macOS `screencapture` CLI (no xcap/ObjC runtime).
+/// This avoids the SIGSEGV crash in lookUpImpOrForward on macOS Intel.
+#[cfg(target_arch = "x86_64")]
+fn capture_monitor_image_cg(monitor_id: u32) -> Result<RgbaImage, XCapError> {
+    use std::process::Command;
+
+    info!(
+        "capture_monitor_image_cg: using screencapture CLI for monitor {} (Intel Mac fallback)",
+        monitor_id
+    );
+
+    let tmp_path = format!("/tmp/screenpipe_capture_{}.png", monitor_id);
+
+    // -x: no sound, -C: capture cursor, -D: display ID
+    // screencapture uses display index (1-based), not CGDirectDisplayID
+    // We use -m (main display) as a simpler fallback since most Intel Macs have one display
+    let output = Command::new("screencapture")
+        .args(["-x", "-C", "-t", "png", &tmp_path])
+        .output()
+        .map_err(|e| XCapError::new(&format!("Failed to run screencapture: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(XCapError::new(&format!(
+            "screencapture failed: {}",
+            stderr
+        )));
+    }
+
+    // Read the PNG file
+    let img = image::open(&tmp_path)
+        .map_err(|e| XCapError::new(&format!("Failed to read screenshot: {}", e)))?;
+
+    // Clean up temp file
+    let _ = std::fs::remove_file(&tmp_path);
+
+    info!(
+        "capture_monitor_image_cg: captured {}x{} via screencapture",
+        img.width(),
+        img.height()
+    );
+
+    Ok(img.to_rgba8())
 }
 
 /// Window data that can be safely transferred between threads

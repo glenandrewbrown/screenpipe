@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { debounce } from "lodash";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { debounce } from "@/lib/utils/throttle";
+import { getHealthWsUrl } from "../utils/api-url";
 
 interface HealthCheckResponse {
   status: string;
@@ -41,7 +42,7 @@ interface HealthCheckHook {
   debouncedFetchHealth: () => Promise<void>;
 }
 
-export function useHealthCheck() {
+export function useHealthCheck(port?: number) {
   const [health, setHealth] = useState<HealthCheckResponse | null>(null);
   const [isServerDown, setIsServerDown] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,7 +69,7 @@ export function useHealthCheck() {
     }
 
     try {
-      const ws = new WebSocket("ws://127.0.0.1:3030/ws/health");
+      const ws = new WebSocket(getHealthWsUrl(port));
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -181,19 +182,27 @@ export function useHealthCheck() {
         retryIntervalRef.current = setInterval(fetchHealth, 3000);
       }
     }
-  }, [isServerDown]);
+  }, [isServerDown, port]);
 
-  const debouncedFetchHealth = useCallback(() => {
-    return new Promise<void>((resolve) => {
-      debounce(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          fetchHealth().then(resolve);
-        } else {
-          resolve();
-        }
-      }, 1000)();
-    });
-  }, [fetchHealth]);
+  // Create stable debounced function with useMemo to prevent recreation
+  // This runs once and never changes, preventing the memory leak
+  const debouncedFetchHealthFn = useMemo(
+    () => debounce(() => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        // Access fetchHealth from the ref to get latest version without dependency
+        fetchHealthRef.current?.();
+      }
+    }, 1000),
+    [] // Empty deps - create once and never recreate
+  );
+
+  // Keep a ref to fetchHealth so debounced function always uses latest
+  const fetchHealthRef = useRef(fetchHealth);
+  fetchHealthRef.current = fetchHealth;
+
+  const debouncedFetchHealth = useCallback(async () => {
+    debouncedFetchHealthFn();
+  }, [debouncedFetchHealthFn]);
 
   useEffect(() => {
     fetchHealth();
@@ -222,8 +231,11 @@ export function useHealthCheck() {
         clearTimeout(serverDownTimerRef.current);
         serverDownTimerRef.current = null;
       }
+
+      // Cancel any pending debounced calls
+      debouncedFetchHealthFn.cancel();
     };
-  }, [fetchHealth]);
+  }, [fetchHealth, debouncedFetchHealthFn]);
 
   return {
     health,

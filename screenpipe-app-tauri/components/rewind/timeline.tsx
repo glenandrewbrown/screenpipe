@@ -5,7 +5,7 @@ import { commands } from "@/lib/utils/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { AudioTranscript } from "@/components/rewind/timeline/audio-transcript";
 import { TimelineProvider } from "@/lib/hooks/use-timeline-selection";
-import { throttle } from "lodash";
+import { throttle } from "@/lib/utils/throttle";
 import { TimelineControls } from "@/components/rewind/timeline/timeline-controls";
 import { addDays, isAfter, isSameDay, subDays } from "date-fns";
 import { getStartDate } from "@/lib/actions/get-start-date";
@@ -16,6 +16,7 @@ import { useTimelineStore } from "@/lib/hooks/use-timeline-store";
 import { hasFramesForDate } from "@/lib/actions/has-frames-date";
 import { CurrentFrameTimeline } from "@/components/rewind/current-frame-timeline";
 import posthog from "posthog-js";
+import { useSettings } from "@/lib/hooks/use-settings";
 
 export interface StreamTimeSeriesResponse {
 	timestamp: string;
@@ -62,6 +63,7 @@ const easeOutCubic = (x: number): number => {
 };
 
 export default function Timeline() {
+	const { settings } = useSettings();
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [showAudioTranscript, setShowAudioTranscript] = useState(true);
 	const containerRef = useRef<HTMLDivElement | null>(null);
@@ -79,10 +81,8 @@ export default function Timeline() {
 	// Flag to prevent frame-date sync from fighting with intentional navigation
 	const isNavigatingRef = useRef(false);
 
-	// Re-show audio transcript when navigating timeline
-	useEffect(() => {
-		setShowAudioTranscript(true);
-	}, [currentIndex]);
+	// Note: Audio transcript visibility is user-controlled.
+	// If they close it, it stays closed until they reopen it.
 
 	const { currentDate, setCurrentDate, fetchTimeRange, hasDateBeenFetched, loadingProgress, onWindowFocus, newFramesCount, lastFlushTimestamp, clearNewFramesCount } =
 		useTimelineStore();
@@ -90,7 +90,7 @@ export default function Timeline() {
 	const { frames, isLoading, error, message, fetchNextDayData, websocket } =
 		useTimelineData(currentDate, (frame) => {
 			setCurrentFrame(frame);
-		});
+		}, settings.port);
 
 	// Track if user is at "live edge" (viewing newest frame, index 0)
 	const isAtLiveEdge = currentIndex === 0;
@@ -223,7 +223,7 @@ export default function Timeline() {
 
 	useEffect(() => {
 		const getStartDateAndSet = async () => {
-			const data = await getStartDate();
+			const data = await getStartDate(settings.port);
 			if (!("error" in data)) {
 				setStartAndEndDates((prev) => ({
 					...prev,
@@ -241,28 +241,21 @@ export default function Timeline() {
 			return;
 		}
 
-		let currentDateEffect = new Date(currentDate);
-		const checkIfThereAreFrames = async () => {
-			const checkFramesForDate = await hasFramesForDate(currentDateEffect);
-			console.log("checkFramesForDate", currentDateEffect, checkFramesForDate);
-			if (!checkFramesForDate) {
-				setCurrentDate(subDays(currentDateEffect, 1));
-			}
+		// Don't automatically navigate away from the current date
+		// Just fetch data for the current date and let UI show "no frames" if empty
+		const currentDateEffect = new Date(currentDate);
 
-			const startTime = new Date(currentDateEffect);
-			startTime.setHours(0, 0, 0, 0);
+		const startTime = new Date(currentDateEffect);
+		startTime.setHours(0, 0, 0, 0);
 
-			const endTime = new Date(currentDateEffect);
-			if (endTime.getDate() === new Date().getDate()) {
-				// For today: use current time so server can poll for real-time frames
-				// Don't subtract 5 minutes - this was breaking live polling
-				// (server checks if now <= end_time, which was always false)
-			} else {
-				endTime.setHours(23, 59, 59, 999);
-			}
-			fetchTimeRange(startTime, endTime);
+		const endTime = new Date(currentDateEffect);
+		if (isSameDay(endTime, new Date())) {
+			// For today: use end of day so server can poll for real-time frames
+			endTime.setHours(23, 59, 59, 999);
+		} else {
+			endTime.setHours(23, 59, 59, 999);
 		}
-		checkIfThereAreFrames();
+		fetchTimeRange(startTime, endTime);
 	}, [currentDate, websocket]); // Re-run when websocket connects or date changes
 
 	// Sync currentDate to frame's date - but NOT during intentional navigation
@@ -413,7 +406,7 @@ export default function Timeline() {
 		isNavigatingRef.current = true;
 
 		try {
-			const checkFramesForDate = await hasFramesForDate(newDate);
+			const checkFramesForDate = await hasFramesForDate(newDate, settings.port);
 
 			if (!checkFramesForDate) {
 				let subDate;
@@ -467,17 +460,33 @@ export default function Timeline() {
 		isNavigatingRef.current = true;
 
 		try {
-			// Clear current state
+			// Clear current state and force jump to today
+			// Don't check hasFramesForDate - always allow jumping to today
 			setCurrentFrame(null);
 			setCurrentIndex(0);
+
+			// Clear sent requests to force a fresh fetch for today (use setState, not mutation)
+			useTimelineStore.setState({ sentRequests: new Set<string>() });
+
 			setCurrentDate(today);
+
+			// Force fetch for today's date range
+			const startTime = new Date(today);
+			startTime.setHours(0, 0, 0, 0);
+			const endTime = new Date(today);
+			endTime.setHours(23, 59, 59, 999);
+
+			// Small delay to let state settle, then fetch
+			setTimeout(() => {
+				fetchTimeRange(startTime, endTime);
+			}, 100);
 		} finally {
 			// Clear navigation flag after state settles
 			setTimeout(() => {
 				isNavigatingRef.current = false;
 			}, 500);
 		}
-	}, [setCurrentFrame, setCurrentDate]);
+	}, [setCurrentFrame, setCurrentDate, fetchTimeRange]);
 
 	const animateToIndex = (targetIndex: number, duration: number = 1000) => {
 		const startIndex = currentIndex;
@@ -748,20 +757,28 @@ export default function Timeline() {
 					)}
 				</div>
 
-				{/* Scroll Indicator */}
+				{/* Frame navigation indicator */}
 				<div className="fixed left-6 top-1/2 -translate-y-1/2 z-40 font-mono">
 					<div className="flex flex-col border border-border bg-background">
 						<button
 							className="flex items-center justify-center w-8 h-8 border-b border-border text-foreground hover:bg-foreground hover:text-background transition-colors duration-150"
-							onClick={() => window.scrollBy({ top: -200, behavior: 'smooth' })}
-							aria-label="Scroll up"
+							onClick={() => {
+								const newIndex = Math.max(0, currentIndex - 10);
+								setCurrentIndex(newIndex);
+								if (frames[newIndex]) setCurrentFrame(frames[newIndex]);
+							}}
+							aria-label="Go back 10 frames"
 						>
 							▲
 						</button>
 						<button
 							className="flex items-center justify-center w-8 h-8 text-foreground hover:bg-foreground hover:text-background transition-colors duration-150"
-							onClick={() => window.scrollBy({ top: 200, behavior: 'smooth' })}
-							aria-label="Scroll down"
+							onClick={() => {
+								const newIndex = Math.min(frames.length - 1, currentIndex + 10);
+								setCurrentIndex(newIndex);
+								if (frames[newIndex]) setCurrentFrame(frames[newIndex]);
+							}}
+							aria-label="Go forward 10 frames"
 						>
 							▼
 						</button>

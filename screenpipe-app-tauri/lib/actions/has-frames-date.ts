@@ -1,6 +1,7 @@
 import { isSameDay } from "date-fns";
+import { getRawSqlUrl } from "../utils/api-url";
 
-export async function hasFramesForDate(date: Date) {
+export async function hasFramesForDate(date: Date, port?: number) {
 	try {
 		// Set up start and end of the day
 		const startOfDay = new Date(date);
@@ -21,7 +22,7 @@ export async function hasFramesForDate(date: Date) {
             LIMIT 1
         `;
 
-		const response = await fetch("http://localhost:3030/raw_sql", {
+		const response = await fetch(getRawSqlUrl(port), {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",

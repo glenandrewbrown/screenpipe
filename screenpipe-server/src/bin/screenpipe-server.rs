@@ -292,6 +292,12 @@ async fn main() -> anyhow::Result<()> {
             output: OutputFormat::Text,
             ..
         }) => true,
+        Some(Command::Vision {
+            subcommand: VisionCommand::List { output: OutputFormat::Json },
+        }) => false,
+        Some(Command::Audio {
+            subcommand: AudioCommand::List { output: OutputFormat::Json },
+        }) => false,
         _ => true,
     };
 
@@ -783,7 +789,7 @@ async fn main() -> anyhow::Result<()> {
                     &cli.included_windows,
                     languages_clone.clone(),
                     cli.capture_unfocused_windows,
-                    cli.enable_realtime_audio_transcription,
+                    cli.enable_realtime_vision,
                 );
 
                 let result = tokio::select! {

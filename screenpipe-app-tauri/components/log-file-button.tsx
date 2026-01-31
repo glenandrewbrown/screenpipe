@@ -22,8 +22,13 @@ import { useState, useEffect } from "react";
 import { ScrollArea } from "./ui/scroll-area";
 import { commands, LogFile } from "@/lib/utils/tauri";
 import React from "react";
-import { LogViewer, LogViewerSearch } from "@patternfly/react-log-viewer";
-import { Toolbar, ToolbarContent, ToolbarItem } from "@patternfly/react-core";
+import dynamic from "next/dynamic";
+
+const LogViewer = dynamic(() => import("@patternfly/react-log-viewer").then(mod => ({ default: mod.LogViewer })), { ssr: false });
+const LogViewerSearch = dynamic(() => import("@patternfly/react-log-viewer").then(mod => ({ default: mod.LogViewerSearch })), { ssr: false });
+const Toolbar = dynamic(() => import("@patternfly/react-core").then(mod => ({ default: mod.Toolbar })), { ssr: false });
+const ToolbarContent = dynamic(() => import("@patternfly/react-core").then(mod => ({ default: mod.ToolbarContent })), { ssr: false });
+const ToolbarItem = dynamic(() => import("@patternfly/react-core").then(mod => ({ default: mod.ToolbarItem })), { ssr: false });
 import { open } from "@tauri-apps/plugin-shell";
 import { getVersion } from "@tauri-apps/api/app";
 import {

@@ -1,4 +1,4 @@
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(target_arch = "x86_64")))]
 use crate::apple::perform_ocr_apple;
 use crate::capture_screenshot_by_window::CapturedWindow;
 use crate::capture_screenshot_by_window::WindowFilters;
@@ -440,7 +440,19 @@ async fn perform_ocr_with_engine(
             .await
             .map_err(|e| ContinuousCaptureError::ErrorProcessingOcr(e.to_string())),
         #[cfg(target_os = "macos")]
-        OcrEngine::AppleNative => Ok(perform_ocr_apple(image, &languages)),
+        OcrEngine::AppleNative => {
+            // On macOS Intel (x86_64), Apple's Vision framework via cidre/ObjC causes
+            // SIGSEGV in lookUpImpOrForward. Fall back to Tesseract on Intel Macs.
+            #[cfg(target_arch = "x86_64")]
+            {
+                tracing::info!("AppleNative OCR not supported on Intel Mac, using Tesseract fallback");
+                Ok(perform_ocr_tesseract(image, languages))
+            }
+            #[cfg(not(target_arch = "x86_64"))]
+            {
+                Ok(perform_ocr_apple(image, &languages))
+            }
+        }
         OcrEngine::Custom(config) => perform_ocr_custom(image, languages, config)
             .await
             .map_err(|e| ContinuousCaptureError::ErrorProcessingOcr(e.to_string())),

@@ -1,3 +1,5 @@
+import { getBaseHttpUrl } from "../utils/api-url";
+
 interface PipeCron {
   path: string;
   schedule: string;
@@ -30,7 +32,7 @@ interface PipeShortcut {
 export class PipeApi {
   private baseUrl: string;
 
-  constructor(baseUrl: string = "http://localhost:3030") {
+  constructor(baseUrl: string = getBaseHttpUrl()) {
     this.baseUrl = baseUrl;
   }
 

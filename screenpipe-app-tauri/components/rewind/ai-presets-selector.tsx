@@ -821,11 +821,8 @@ export const AIPresetsSelector = ({
     return defaultPreset?.id || settings?.aiPresets?.[0]?.id || undefined;
   }, [settings?.aiPresets]);
 
-  // Check if selected preset requires login
-  const selectedPresetRequiresLogin = useMemo(() => {
-    const preset = aiPresets.find((p) => p.id === selectedPreset);
-    return preset?.provider === "screenpipe-cloud" && !settings?.user?.token;
-  }, [aiPresets, selectedPreset, settings?.user?.token]);
+  // Note: Login requirement removed - all features work locally
+  const selectedPresetRequiresLogin = false;
 
   useEffect(() => {
     if (onPresetChange) {

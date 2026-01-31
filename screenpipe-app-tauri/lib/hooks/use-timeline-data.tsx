@@ -1,10 +1,11 @@
 import { StreamTimeSeriesResponse } from "@/components/rewind/timeline";
 import { useTimelineStore } from "./use-timeline-store";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export function useTimelineData(
 	currentDate: Date,
 	setCurFrame: (frame: StreamTimeSeriesResponse) => void,
+	port?: number,
 ) {
 	const {
 		frames,
@@ -14,7 +15,17 @@ export function useTimelineData(
 		connectWebSocket,
 		fetchNextDayData,
 		websocket,
+		setPort,
 	} = useTimelineStore();
+
+	// Track if we've already set the initial frame
+	const hasSetInitialFrame = useRef(false);
+
+	useEffect(() => {
+		if (port !== undefined) {
+			setPort(port);
+		}
+	}, [port, setPort]);
 
 	useEffect(() => {
 		// Establish WebSocket connection on mount
@@ -22,12 +33,14 @@ export function useTimelineData(
 		connectWebSocket();
 	}, []); // Only connect once when component mounts
 
-	// Set initial frame when frames arrive and no frame is selected yet
+	// Set initial frame when frames first arrive (only once per session)
 	useEffect(() => {
-		if (frames.length > 0) {
+		if (frames.length > 0 && !hasSetInitialFrame.current) {
 			setCurFrame(frames[0]);
+			hasSetInitialFrame.current = true;
 		}
-	}, [frames.length > 0]); // Only trigger when we go from 0 to some frames
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [frames.length > 0]); // Boolean - only run when transitioning from no frames to having frames
 
 	return {
 		frames,
