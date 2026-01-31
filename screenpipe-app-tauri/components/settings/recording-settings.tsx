@@ -239,8 +239,11 @@ export function RecordingSettings() {
 
   useEffect(() => {
     const loadDevices = async () => {
+      let monitors: MonitorDevice[] = [];
+      let audioDevices: AudioDevice[] = [];
+
+      // Fetch monitors (isolated so failure doesn't block audio)
       try {
-        // Use sidecar command to fetch monitors
         const monitorCommand = TauriCommand.sidecar("screenpipe", [
           "vision",
           "list",
@@ -250,17 +253,18 @@ export function RecordingSettings() {
 
         const monitorOutput = await monitorCommand.execute();
         if (monitorOutput.code !== 0) {
-          throw new Error(`Failed to fetch monitors: ${monitorOutput.stderr}`);
+          throw new Error(`Exit code ${monitorOutput.code}: ${monitorOutput.stderr}`);
         }
 
-        // Parse the JSON response which might be in {data: [...], success: true} format
         const monitorResponse = JSON.parse(monitorOutput.stdout);
-        const monitors: MonitorDevice[] =
-          monitorResponse.data || monitorResponse;
-        console.log("monitors", monitors);
+        monitors = monitorResponse.data || monitorResponse;
         setAvailableMonitors(monitors);
+      } catch (error) {
+        console.error("Failed to load monitors:", error);
+      }
 
-        // Use sidecar command to fetch audio devices
+      // Fetch audio devices (isolated so failure doesn't block monitors)
+      try {
         const audioCommand = TauriCommand.sidecar("screenpipe", [
           "audio",
           "list",
@@ -270,20 +274,28 @@ export function RecordingSettings() {
 
         const audioOutput = await audioCommand.execute();
         if (audioOutput.code !== 0) {
-          throw new Error(
-            `Failed to fetch audio devices: ${audioOutput.stderr}`
-          );
+          throw new Error(`Exit code ${audioOutput.code}: ${audioOutput.stderr}`);
         }
 
-        // Parse the JSON response which might be in {data: [...], success: true} format
         const audioResponse = JSON.parse(audioOutput.stdout);
-        const audioDevices: AudioDevice[] = audioResponse.data || audioResponse;
-        console.log("audioDevices", audioDevices);
+        audioDevices = audioResponse.data || audioResponse;
         setAvailableAudioDevices(audioDevices);
+      } catch (error) {
+        console.error("Failed to load audio devices:", error);
+      }
 
-        console.log("settings", settings);
+      // Show a single toast if both failed
+      if (monitors.length === 0 && audioDevices.length === 0) {
+        toast({
+          title: "Failed to load devices",
+          description: "Could not detect monitors or audio devices. The server may still be starting — try reopening settings.",
+          variant: "destructive",
+        });
+        return;
+      }
 
-        // Update monitors
+      // Update monitors
+      if (monitors.length > 0) {
         const availableMonitorIds = monitors.map((monitor) =>
           monitor.id.toString()
         );
@@ -298,7 +310,11 @@ export function RecordingSettings() {
           ]
         }
 
-        // Update audio devices
+        handleSettingsChange({ monitorIds: updatedMonitorIds }, false);
+      }
+
+      // Update audio devices
+      if (audioDevices.length > 0) {
         const availableAudioDeviceNames = audioDevices.map(
           (device) => device.name
         );
@@ -317,15 +333,7 @@ export function RecordingSettings() {
             .map((device) => device.name);
         }
 
-        handleSettingsChange(
-          {
-            monitorIds: updatedMonitorIds,
-            audioDevices: updatedAudioDevices,
-          },
-          false
-        );
-      } catch (error) {
-        console.error("Failed to load devices:", error);
+        handleSettingsChange({ audioDevices: updatedAudioDevices }, false);
       }
     };
 
@@ -1030,7 +1038,7 @@ export function RecordingSettings() {
             <Command>
               <CommandInput placeholder="Search audio devices..." />
               <CommandList>
-                <CommandEmpty>No audio devices found.</CommandEmpty>
+                <CommandEmpty>No audio devices found. Try restarting the app or check permissions.</CommandEmpty>
                 <CommandGroup>
                   {availableAudioDevices.map((device) => (
                     <CommandItem

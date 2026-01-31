@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::tray::TrayIcon;
 use tauri::Emitter;
+use tauri::Manager;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     AppHandle, Wry,
@@ -118,15 +119,25 @@ fn create_dynamic_menu(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     if !dev_mode {
+        let recording = matches!(get_recording_status(), RecordingStatus::Recording);
         menu_builder = menu_builder
             .item(&PredefinedMenuItem::separator(app)?)
-            .item(&MenuItemBuilder::with_id("start_recording", "start recording").build(app)?)
-            .item(&MenuItemBuilder::with_id("stop_recording", "stop recording").build(app)?);
+            .item(
+                &MenuItemBuilder::with_id("start_recording", "start recording")
+                    .enabled(!recording)
+                    .build(app)?,
+            )
+            .item(
+                &MenuItemBuilder::with_id("stop_recording", "stop recording")
+                    .enabled(recording)
+                    .build(app)?,
+            );
     }
 
-    // Settings, feedback and quit
+    // Restart server, settings, feedback and quit
     menu_builder = menu_builder
         .item(&PredefinedMenuItem::separator(app)?)
+        .item(&MenuItemBuilder::with_id("restart_server", "restart server").build(app)?)
         .item(&MenuItemBuilder::with_id("settings", "settings").build(app)?)
         .item(&MenuItemBuilder::with_id("feedback", "send feedback").build(app)?)
         .item(&MenuItemBuilder::with_id("onboarding", "onboarding").build(app)?)
@@ -167,6 +178,23 @@ fn handle_menu_event(app_handle: &AppHandle, event: tauri::menu::MenuEvent) {
                 onboarding.reset();
             });
             let _ = ShowRewindWindow::Onboarding.show(app_handle);
+        }
+        "restart_server" => {
+            let app = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = crate::sidecar::stop_screenpipe(
+                    app.state::<crate::SidecarState>(),
+                    app.clone(),
+                )
+                .await;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let _ = crate::sidecar::spawn_screenpipe(
+                    app.state::<crate::SidecarState>(),
+                    app.clone(),
+                    None,
+                )
+                .await;
+            });
         }
         "quit" => {
             debug!("Quit requested");
