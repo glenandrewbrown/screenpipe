@@ -197,7 +197,6 @@ let DEFAULT_SETTINGS: Settings = {
 			disableVision: false,
 			useAllMonitors: false,
 			enableRealtimeVision: true,
-			showShortcutOverlay: true,
 		};
 
 export function createDefaultSettingsObject(): Settings {

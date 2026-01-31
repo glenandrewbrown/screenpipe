@@ -694,9 +694,6 @@ async fn main() {
                 commands::set_onboarding_step,
                 commands::show_onboarding_window,
                 commands::open_search_window,
-                // Shortcut reminder commands
-                commands::show_shortcut_reminder,
-                commands::hide_shortcut_reminder,
                 // Window-specific shortcut commands (dynamic registration)
                 commands::register_window_shortcuts,
                 commands::unregister_window_shortcuts,
@@ -792,9 +789,6 @@ async fn main() {
             commands::set_onboarding_step,
             commands::show_onboarding_window,
             commands::open_search_window,
-            // Shortcut reminder commands
-            commands::show_shortcut_reminder,
-            commands::hide_shortcut_reminder,
             // Window-specific shortcut commands (dynamic registration)
             commands::register_window_shortcuts,
             commands::unregister_window_shortcuts,
@@ -925,18 +919,6 @@ async fn main() {
                 let _ = ShowRewindWindow::Onboarding.show(&app.handle());
             } else {
                 let _ = ShowRewindWindow::Main.show(&app.handle());
-            }
-
-            // Show shortcut reminder overlay on app startup if enabled AND onboarding is completed
-            // Don't show reminder during first-time onboarding to reduce overwhelm
-            if store.show_shortcut_overlay && onboarding_store.is_completed {
-                let shortcut = store.show_screenpipe_shortcut.clone();
-                let app_handle_reminder = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    // Small delay to ensure windows are ready
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    let _ = commands::show_shortcut_reminder(app_handle_reminder, shortcut).await;
-                });
             }
 
             // Get app handle once for all initializations

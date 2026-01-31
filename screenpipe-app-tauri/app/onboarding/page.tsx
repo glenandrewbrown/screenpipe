@@ -240,11 +240,6 @@ export default function OnboardingPage() {
       // Complete onboarding in backend (only store completion status)
       await completeOnboarding();
 
-      // Now that onboarding is complete, show the shortcut reminder overlay
-      if (settings.showScreenpipeShortcut && settings.showShortcutOverlay !== false) {
-        commands.showShortcutReminder(settings.showScreenpipeShortcut);
-      }
-
       // Schedule 2-hour reminder notification (first run only)
       scheduleFirstRunNotification();
 

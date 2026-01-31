@@ -9,7 +9,6 @@ import { ShortcutTracker } from "@/components/shortcut-reminder";
 import dynamic from "next/dynamic";
 
 const GlobalChat = dynamic(() => import("@/components/global-chat").then(mod => ({ default: mod.GlobalChat })));
-import { usePathname } from "next/navigation";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -27,9 +26,6 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
-  const isOverlay = pathname === "/shortcut-reminder";
-
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -92,11 +88,11 @@ export default function RootLayout({
       </head>
       <Providers>
         <body className={`${inter.className} scrollbar-hide`}>
-          {!isOverlay && <DeeplinkHandler />}
-          {!isOverlay && <ShortcutTracker />}
+          <DeeplinkHandler />
+          <ShortcutTracker />
           {children}
-          {!isOverlay && <GlobalChat />}
-          {!isOverlay && <Toaster />}
+          <GlobalChat />
+          <Toaster />
         </body>
       </Providers>
     </html>

@@ -186,8 +186,6 @@ pub struct SettingsStore {
     pub use_all_monitors: bool,
     #[serde(rename = "enableRealtimeVision")]
     pub enable_realtime_vision: bool,
-    #[serde(rename = "showShortcutOverlay", default = "default_true")]
-    pub show_shortcut_overlay: bool,
     /// Unique device ID for AI usage tracking (generated on first launch)
     #[serde(rename = "deviceId", default = "generate_device_id")]
     pub device_id: String,
@@ -197,9 +195,6 @@ fn generate_device_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-fn default_true() -> bool {
-    true
-}
 
 #[derive(Serialize, Deserialize, Type,Clone,Default)]
 pub enum AIProviderType {
@@ -456,7 +451,6 @@ impl Default for SettingsStore {
             disable_vision: false,
             use_all_monitors: false,
             enable_realtime_vision: true,
-            show_shortcut_overlay: true,
             device_id: uuid::Uuid::new_v4().to_string(),
         }
     }

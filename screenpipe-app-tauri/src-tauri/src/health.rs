@@ -86,18 +86,19 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
                 last_theme = theme;
 
                 if let Some(main_tray) = app.tray_by_id("screenpipe_main") {
-                    let icon_path = if current_status == "unhealthy" || current_status == "error" {
-                        if theme == Mode::Light {
+                    // Recording and stopped use colored (non-template) icons
+                    // Error/unhealthy uses template icons that adapt to system theme
+                    let (icon_path, use_template) = if current_status == "unhealthy" || current_status == "error" {
+                        let path = if theme == Mode::Light {
                             "assets/screenpipe-logo-tray-black-failed.png"
                         } else {
                             "assets/screenpipe-logo-tray-white-failed.png"
-                        }
+                        };
+                        (path, true)
+                    } else if current_status == "healthy" {
+                        ("assets/screenpipe-logo-tray-recording.png", false)
                     } else {
-                        if theme == Mode::Light {
-                            "assets/screenpipe-logo-tray-black.png"
-                        } else {
-                            "assets/screenpipe-logo-tray-white.png"
-                        }
+                        ("assets/screenpipe-logo-tray-stopped.png", false)
                     };
 
                     let icon_path = app
@@ -107,7 +108,7 @@ pub async fn start_health_check(app: tauri::AppHandle) -> Result<()> {
 
                     let _ = main_tray
                         .set_icon(Some(tauri::image::Image::from_path(&icon_path).unwrap()))
-                        .and_then(|_| main_tray.set_icon_as_template(true));
+                        .and_then(|_| main_tray.set_icon_as_template(use_template));
                 }
             }
         }

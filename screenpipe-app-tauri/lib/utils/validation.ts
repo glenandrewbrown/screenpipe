@@ -99,8 +99,7 @@ export const settingsStoreSchema = z.object({
   startAudioShortcut: z.string(),
   stopAudioShortcut: z.string(),
   pipeShortcuts: z.record(z.string()),
-  showShortcutOverlay: z.boolean().optional(),
-  
+
   // Other
   isLoading: z.boolean(),
   installedPipes: z.array(z.any()), // Define proper pipe schema if needed
